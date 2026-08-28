@@ -1,0 +1,110 @@
+# pi-bridge (dsh-pi-bridge)
+
+把本机 **pi**（pi-mono / Pi coding agent）的认证配置（`auth.json` + `models.json`）在**内存中**转换为 dsh 的 LLM 路由 —— 即转即用、绝不落地。相当于一座 auth adapter 桥：你在 pi 里登录过的 provider，dsh 直接可用。
+
+- **零配置**：默认读取 `$PI_CODING_AGENT_DIR`，否则 `~/.pi/agent`（Windows 即 `%USERPROFILE%\.pi\agent`）。
+- **只进不出**：凭据全程只存在于进程内存；不写 dsh 凭据存储、不回写 `~/.pi`、不写任何临时文件。
+- **不拖累组合**：找不到 pi 目录、配置损坏、或没有任何可用凭据时，插件空挂载并打 warn，绝不抛错。
+
+## 安装
+
+```bash
+cd pi-bridge
+npm install
+npm run build   # 产出 dist/（ESM + .d.ts）
+```
+
+依赖：`@earendil-works/pi-ai`（运行时）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`（peer，由 dsh 组合提供）。
+
+> Node 版本：pi-ai 0.84.x 声明 `node >= 22.19`；本插件的全部功能在 Node 20 上实测通过（安装时仅有 EBADENGINE 警告），但建议与 dsh 保持一致使用 Node 22+。
+
+## 在 dsh 中使用（cordis.yml）
+
+两种绝对路径 `insert` 方式均可：
+
+```yaml
+# 直接加载 TypeScript 源码（dsh 支持按绝对路径加载 TS 插件入口）
+- insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/src/index.ts' }]
+
+# 或加载构建产物
+- insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/dist/index.js' }]
+```
+
+带配置：
+
+```yaml
+- insert:
+    - id: pi-bridge
+      name: '/abs/path/pi-bridge/src/index.ts'
+      config:
+        # piDir: /custom/pi/agent        # 覆盖 pi 配置目录
+        # providers: [anthropic, openai] # 只桥接白名单内的 provider
+        prefix: 'pi/'                     # 路由名前缀，避免与其他适配器冲突
+        includeOAuth: true                # 是否桥接 OAuth 凭据
+        commandTimeoutMs: 10000           # !cmd 取值命令超时
+```
+
+挂载后，路由名即 provider id（加前缀），例如 `openai` / `pi/openai`，模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。
+
+## 工作原理
+
+```
+locatePiDir → readPiAuth/readPiModels → buildRoutes → PiBridgeAdapter → ctx.llm.registerAdapter
+```
+
+1. **定位**（`pi-locator.ts`）：显式 `piDir` > `$PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`；目录须含 `auth.json` 或 `models.json` 至少其一。
+2. **读取**（`pi-auth.ts`）：文件缺失 → `undefined`；JSON 损坏 → 带路径的 `PiBridgeError`（插件层捕获后空挂载 + warn）；单条非法条目 → 跳过 + warn。
+3. **转换**（`convert.ts`，纯函数）：
+   - `auth.json` 中有凭据的 provider → 内置路由（provider 元数据交给 pi-ai 内置目录）；
+   - `models.json` 中的自定义 provider → `{ api, baseURL, models, headers, authHeader }` 全字段映射；
+   - apiKey 优先级：`auth.json` 同名条目 > `models.json` 的 `apiKey` 字段；
+   - 取值解析与 pi 一致：`"$ENV_VAR"` 读环境变量、`"!cmd args"` 执行 shell 命令取 stdout（默认 10s 超时，内存缓存，每次挂载最多执行一次）、其余为字面量。
+4. **适配**（`adapter.ts`）：`PiBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）。图片附件 v1 不支持：遇 image block 抛 `UNSUPPORTED_OPTION`。
+
+## OAuth 凭据的处理与限制
+
+- access token **未过期**（或无 `expires`）→ 直接当 bearer key 使用；
+- **已过期但有 refresh token** → 注入 pi-ai 的**内存** `CredentialStore`，由 pi-ai 自己的 OAuth 刷新机制在请求时刷新；刷新出的新 token 只活在内存里，**绝不回写** `auth.json`。注意：刷新能力来自 pi-ai 内置目录中该 provider 自带的 OAuth 定义，因此仅对目录内的 provider（如 anthropic、openai-codex 等）有效；刷新失败时该 provider 的请求会以错误终止，重新在 pi 侧登录即可恢复；
+- 已过期且无 refresh token → 跳过该 provider 并 warn；
+- `includeOAuth: false` 可整体关闭 OAuth 桥接。
+
+## 与 `@deepseek-ai/dsh-llm-pi-ai` 的区别
+
+| | dsh-llm-pi-ai（官方） | pi-bridge（本插件） |
+|---|---|---|
+| 凭据来源 | harness 自有凭据存储 / 登录流程（`ctx.credentials`、OAuth 登录） | 复用本机 pi 已有的 `auth.json` 登录态 |
+| 配置 | settings seam，profile 逐字段覆盖目录 | 零配置（仅 5 个可选项） |
+| 凭据落盘 | 会写入 harness 凭据存储 | 绝不写任何文件，纯内存 |
+| 重试 | 配合 dsh-llm-retry / retry policy | 无（`maxRetries: 0`） |
+| 图片 | 支持（经 dsh-attachment） | v1 不支持，显式 `UNSUPPORTED_OPTION` |
+| 自定义 provider | settings.yaml 声明 | 直接复用 pi 的 `models.json` |
+
+一句话：官方适配器面向 harness 自有凭据/登录体系；本插件把 pi 当作认证来源，只做一次性、只读的桥接。
+
+## 安全说明
+
+- 对 pi 配置文件**只读**：不创建、不修改、不删除 `~/.pi`（或 `$PI_CODING_AGENT_DIR`）下任何文件；
+- 凭据全程只在进程内存：不调用 `ctx.credentials.set`，不写 dsh 凭据存储，不写临时文件，OAuth 刷新结果也不回写；
+- `"!cmd"` 取值命令来自 pi 自己的配置文件（与你直接运行 pi 时执行的命令相同），默认 10s 超时、结果仅在内存缓存；
+- warn/日志不包含凭据内容。
+
+## 平台支持
+
+- **Linux / macOS**：默认目录 `~/.pi/agent`；
+- **Windows**：默认目录 `%USERPROFILE%\.pi\agent`（`os.homedir()` 天然跨平台）；
+- 两平台均可用 `$PI_CODING_AGENT_DIR` 或配置项 `piDir` 覆盖；
+- 路径拼接逻辑通过注入 `env` / `homedir` / `joinPath` 的纯函数实现，win32 与 posix 样本均有单元测试覆盖。
+
+## 开发与测试
+
+```bash
+npm run typecheck   # tsc --noEmit，严格模式零错误
+npm run build       # tsc -p tsconfig.build.json → dist/
+npm test            # vitest run，69 个用例
+```
+
+测试全部使用临时目录 fixture 与 mock（注入的 `execCmd`、fake pi-ai 流），不访问真实 `~/.pi`，不访问网络。
+
+## English summary
+
+**pi-bridge** is a dsh (deepseek-harness) plugin that converts the local pi coding agent's auth (`auth.json` + `models.json`) into dsh LLM routes **in memory only** — zero config, read-only, never persisted. It locates pi's config dir (`$PI_CODING_AGENT_DIR` or `~/.pi/agent`, cross-platform), resolves pi's value syntax (`$ENV` / `!cmd` / literal), builds routes (api-key priority: `auth.json` > `models.json`; unexpired OAuth access tokens used as bearer keys; expired ones with refresh tokens delegated to pi-ai's in-memory refresh, never written back), and registers a frozen `LlmAdapter` that honors the full dsh streaming contract (`usage` before `finish`, raw-JSON `argumentsDelta`, `LlmError` with stable codes, `options.signal`, `UNSUPPORTED_OPTION` for unsupported features such as images in v1). Missing pi, corrupt files, or unusable credentials mount empty with a warning instead of throwing. Unlike the official `@deepseek-ai/dsh-llm-pi-ai` (harness-owned credentials, settings seam, login flows), pi-bridge reuses pi's existing login state as-is.

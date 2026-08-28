@@ -1,0 +1,103 @@
+# SPEC — pi-bridge (dsh-pi-bridge)
+
+> dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json` + `auth.json`）在**内存中**转换为 dsh 的 LLM 路由，即转即用、绝不落地。相当于一座 auth adapter 桥。
+
+## 0. 背景事实（已核实，不要重新调研）
+
+### pi 侧
+- 配置目录：`$PI_CODING_AGENT_DIR`，否则 `~/.pi/agent`（Windows 即 `%USERPROFILE%\.pi\agent`；`os.homedir()` 天然跨平台）。
+- `auth.json`（0600）：`Record<providerId, PiAuthEntry>`
+  - `{ "type": "api_key", "key": "sk-..." }`
+  - `{ "type": "oauth", "access": "...", "refresh": "...", "expires": <epochMs> }`
+- `models.json`：`{ "providers": Record<providerId, PiProvider> }`
+  - `PiProvider`: `baseUrl?`, `api?` (`openai-completions` | `anthropic-messages` | `google-generative-ai` | ...), `apiKey?`, `headers?`, `authHeader?`, `name?`, `models?: [{ id, name?, contextWindow?, maxTokens?, reasoning?, cost? }]`
+- pi 的取值解析（`apiKey`、`headers` 值、`auth.json` 的 `key`）：
+  - `"$ENV_VAR"` → 读环境变量
+  - `"!cmd args"` → shell 命令，请求时执行取 stdout
+  - 其他 → 字面量
+
+### dsh 侧（参考源码已克隆在 `/tmp/dsh`）
+- 插件 = TS 模块导出 `name` + `Config`（schemastery）+ `apply(ctx, config)`；经 cordis.yml `insert` 以绝对路径加载。
+- LLM seam：`@deepseek-ai/dsh-llm`（npm 已发布 0.0.1-rc.1）。核心契约读 `/tmp/dsh/packages/llm/llm/src/types.ts`：
+  - `ctx.llm.registerAdapter(routes: string[], adapter: LlmAdapter)`（重复路由抛错；返回 disposable）
+  - `LlmAdapter`：实现 `stream(options): AsyncIterable<StreamChunk>`、`resolveModel()`、`listProviders()`、`listModels()` 等（以实际类型为准）
+- **参考实现**：`/tmp/dsh/packages/llm/llm-pi-ai/src/`（adapter.ts / stream.ts / provider.ts / auth.ts）——本插件是它的极简特化：无 settings seam、无登录流程、无 retry 包、纯内存凭据。
+- 协议义务（必须遵守，详见 `/tmp/dsh/docs/cookbook/adding-an-llm-adapter.md`）：
+  - `usage` 在 `finish` 之前发出；`finish` 之后不再发任何 chunk
+  - 工具调用 `arguments` 为原始 JSON 字符串，流式用 `argumentsDelta`
+  - 块 `index` 按首次出现顺序分配并复用
+  - 错误仅两条路径：`stream()` 抛 `LlmError`（带稳定 code），或 `finish {kind:'error'|'aborted'}`
+  - 遵守 `options.signal`
+  - 不支持的 option → 抛 `LlmError(..., 'UNSUPPORTED_OPTION')`，不静默丢弃
+- pi-ai 库：`@earendil-works/pi-ai`@^0.84（npm 已发布），导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
+
+## 1. 项目形态
+
+- 目录：`/mnt/agents/output/pi-bridge/`，独立 npm 包 `dsh-pi-bridge`，ESM，TypeScript。
+- dependencies: `@earendil-works/pi-ai`
+- peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`
+- devDependencies: `typescript`, `vitest`, `@types/node`
+- 构建：`tsc` → `dist/`（ESM + .d.ts）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
+
+## 2. 模块划分
+
+```
+src/
+  pi-locator.ts   # 跨平台定位 pi 配置目录
+  pi-auth.ts      # auth.json / models.json 类型 + 容错解析 + 取值解析（literal/$ENV/!cmd）
+  convert.ts      # pi → 路由定义转换（纯函数，可单测）
+  adapter.ts      # PiBridgeAdapter implements LlmAdapter（包装 pi-ai）
+  index.ts        # cordis 插件入口
+tests/            # vitest
+README.md         # 中文为主，附 English 摘要
+```
+
+### 2.1 pi-locator.ts
+- `locatePiDir(opts: { piDir?: string; env?: NodeJS.ProcessEnv; homedir?: () => string }): string | undefined`
+- 优先级：显式 `piDir` > `env.PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`
+- 存在性校验（`auth.json`/`models.json` 至少其一存在才算有效），返回 `undefined` 表示未找到
+- 纯函数注入 env/homedir，便于 Windows/Linux 双平台单测（用 win32 风格路径样本测拼接逻辑）
+
+### 2.2 pi-auth.ts
+- 类型：`PiAuthEntry = {type:'api_key',key:string} | {type:'oauth',access:string,refresh?:string,expires?:number}`
+- `readPiAuth(dir)`, `readPiModels(dir)`：文件不存在 → `undefined`；JSON 损坏 → 抛带路径信息的 `PiBridgeError`；条目形态非法 → 跳过该条并 warn（不整体失败）
+- `resolvePiValue(raw, {env, execCmd}): string | undefined`：实现 `$ENV` / `!cmd` / 字面量三态；`!cmd` 带超时（默认 10s）与内存缓存；失败返回 `undefined` 并 warn
+
+### 2.3 convert.ts
+- `buildRoutes(auth, models, opts): RouteDef[]`
+- 对每个 `auth.json` 里有凭据的 provider：生成路由（provider 元数据交给 pi-ai 内置目录）
+- 对每个 `models.json` 自定义 provider：生成路由 `{ api, baseURL, models, headers, authHeader }`，apiKey 解析顺序 = auth.json 同名片 > models.json `apiKey` 字段
+- `oauth` 条目：`access` 未过期 → 当 apiKey 用；已过期且有 `refresh` → 交给 pi-ai 的 OAuth 刷新机制（内存态，**不回写**）；都不行的跳过并 warn
+- `opts.providers?: string[]` 白名单过滤；`opts.prefix?: string` 路由名前缀（防空路由冲突）
+
+### 2.4 adapter.ts
+- `class PiBridgeAdapter extends LlmAdapter`：构造时接收冻结的 `RouteDef[]` 与 pi-ai `Models` 集合（`createModels` 构建，凭据经内存 CredentialStore/AuthContext 注入，或在每次 stream 调用以 `apiKey` override 传入——以 pi-ai 实际 API 为准，参照 llm-pi-ai 的做法）
+- 遵守第 0 节全部协议义务；图片附件 v1 不支持 → 遇 image block 抛 `UNSUPPORTED_OPTION`
+- 凭据只存在于内存：不写 dsh 凭据存储、不写任何文件、不调用 `ctx.credentials.set`
+
+### 2.5 index.ts
+```ts
+export const name = 'pi-bridge'
+export const Config = z.object({
+  piDir: z.string().optional(),        // 覆盖 pi 配置目录
+  providers: z.array(z.string()).optional(), // 白名单
+  prefix: z.string().default(''),      // 路由名前缀
+  includeOAuth: z.boolean().default(true),
+  commandTimeoutMs: z.number().default(10000),
+})
+export function apply(ctx, config) { /* locate→read→convert→registerAdapter；ctx.on('dispose') 反注册 */ }
+```
+- 找不到 pi 目录或无任何可用路由：`apply` 不抛错，打 warn 后空挂载（dsh 组合不应因未装 pi 而崩）
+
+## 3. 测试（vitest）
+- locator：显式 piDir / PI_CODING_AGENT_DIR / homedir 回退 / 全部缺失；win32 与 posix 路径样本
+- pi-auth：api_key、oauth（过期/未过期）、文件缺失、坏 JSON、非法条目跳过、`$ENV`/字面量/`!cmd`（mock exec）
+- convert：内置 provider 路由、models.json 自定义 provider 全字段映射、白名单、前缀、apiKey 优先级
+- adapter：用 pi-ai 的 mock/fake 流验证 chunk 顺序（usage→finish）、tool-call argumentsDelta、signal 中止、UNSUPPORTED_OPTION
+- 全部 `pnpm test`（或 `npx vitest run`）必须通过
+
+## 4. README 要点
+- 安装与 cordis.yml 配置示例（绝对路径 insert 两种：src/index.ts 与 dist/index.js）
+- 与官方 `@deepseek-ai/dsh-llm-pi-ai` 的区别（那个面向 harness 自有凭据/登录体系；本插件零配置复用 pi 已有登录态，不落地）
+- 安全说明：只读 pi 文件；凭据全程内存；不修改 `~/.pi` 与 `$DSH_HOME` 下任何文件
+- Windows + Linux 支持说明（路径、PI_CODING_AGENT_DIR）
