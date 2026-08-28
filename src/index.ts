@@ -8,6 +8,11 @@
  * (or yields no servable route) the plugin mounts empty with a warning
  * instead of failing the composition.
  *
+ * Follows the official dsh plugin (bundle) convention: exports
+ * `name` / `inject: ['llm']` / `Config` / `apply`, and the package declares
+ * `dsh.bundle.patch` → root `cordis.patch.yml`. It can also be inserted by
+ * absolute path into any cordis layer for development:
+ *
  * ```yaml
  * # cordis.yml
  * - insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/src/index.ts' }]
@@ -32,6 +37,13 @@ export { buildPiModels, mapStopReason, mapUsage, PiBridgeAdapter, toPiContext, t
 export type { BuiltPiModels, PiModelsLike } from './adapter.js'
 
 export const name = 'pi-bridge'
+
+/**
+ * LLM 适配器插件的官方约定：声明对 `llm` 服务（`@deepseek-ai/dsh-llm` 的
+ * LlmRuntime）的依赖，cordis 会等 llm 就位后再调用 `apply`。`apply` 内部仍
+ * 保留 ctx.llm 缺失时的空挂载兜底——直接 import 调用（如单测）不经 inject。
+ */
+export const inject = ['llm']
 
 /** pi-bridge plugin configuration. */
 export interface Config {

@@ -18,9 +18,33 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 
 > Node 版本：pi-ai 0.84.x 声明 `node >= 22.19`；本插件的全部功能在 Node 20 上实测通过（安装时仅有 EBADENGINE 警告），但建议与 dsh 保持一致使用 Node 22+。
 
-## 在 dsh 中使用（cordis.yml）
+## 在 dsh 中使用
 
-两种绝对路径 `insert` 方式均可：
+### 作为 dsh bundle（官方方式）
+
+本包遵循 dsh 插件官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`，`package.json` 声明 `dsh.bundle.patch` 指向根目录的 `cordis.patch.yml`（默认零配置挂载，id 为 `pi-bridge`）。装入 profile：
+
+```bash
+dsh plugin --profile <name> add /abs/path/dsh-pi-bridge   # 本地路径或 npm 包名均可
+```
+
+需要改配置时，在 profile 层 `cordis.patch.yml` 用同 id 覆盖：
+
+```yaml
+- insert:
+    - id: pi-bridge
+      name: dsh-pi-bridge
+      config:
+        # piDir: /custom/pi/agent        # 覆盖 pi 配置目录
+        # providers: [anthropic, openai] # 只桥接白名单内的 provider
+        prefix: 'pi/'                     # 路由名前缀，避免与其他适配器冲突
+        includeOAuth: true                # 是否桥接 OAuth 凭据
+        commandTimeoutMs: 10000           # !cmd 取值命令超时
+```
+
+### 绝对路径直挂（开发调试）
+
+不经 bundle 机制、直接在任意 cordis 配置层 `insert`，两种入口均可：
 
 ```yaml
 # 直接加载 TypeScript 源码（dsh 支持按绝对路径加载 TS 插件入口）
@@ -28,20 +52,6 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 
 # 或加载构建产物
 - insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/dist/index.js' }]
-```
-
-带配置：
-
-```yaml
-- insert:
-    - id: pi-bridge
-      name: '/abs/path/pi-bridge/src/index.ts'
-      config:
-        # piDir: /custom/pi/agent        # 覆盖 pi 配置目录
-        # providers: [anthropic, openai] # 只桥接白名单内的 provider
-        prefix: 'pi/'                     # 路由名前缀，避免与其他适配器冲突
-        includeOAuth: true                # 是否桥接 OAuth 凭据
-        commandTimeoutMs: 10000           # !cmd 取值命令超时
 ```
 
 挂载后，路由名即 provider id（加前缀），例如 `openai` / `pi/openai`，模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。

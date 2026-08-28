@@ -44,6 +44,7 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 - peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`
 - devDependencies: `typescript`, `vitest`, `@types/node`
 - 构建：`tsc` → `dist/`（ESM + .d.ts）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
+- 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `pi-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。
 
 ## 2. 模块划分
 

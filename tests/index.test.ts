@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { apply, Config, name } from '../src/index.js'
+import { apply, Config, inject, name } from '../src/index.js'
 
 let dir: string
 
@@ -58,8 +58,9 @@ function baseCaptured(withLlm = true): Captured {
 }
 
 describe('plugin metadata', () => {
-  it('exposes the plugin name and a validating Config schema', () => {
+  it('exposes the plugin name, llm inject declaration, and a validating Config schema', () => {
     expect(name).toBe('pi-bridge')
+    expect(inject).toEqual(['llm'])
     expect(Config({})).toMatchObject({ prefix: '', includeOAuth: true, commandTimeoutMs: 10_000 })
     expect(Config({ prefix: 'pi/', providers: ['openai'] })).toMatchObject({ prefix: 'pi/', providers: ['openai'] })
   })
