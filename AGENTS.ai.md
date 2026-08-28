@@ -17,7 +17,7 @@
 ## 设计文档
 
 - Superpowers 产出的设计与规格文档写入 `docs/spec/`，将默认的 `docs/superpowers/specs/*` 重定向为 `docs/spec/*`，禁止创建 `docs/superpowers/` 层级。
-- 已核实的背景事实记入 `SPEC.md` 第 0 节，不重复调研。
+- 已核实的背景事实记入 `docs/spec/` 设计文档的「背景事实」一节，不重复调研。
 
 ## 提交授权
 

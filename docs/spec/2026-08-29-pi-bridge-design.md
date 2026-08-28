@@ -1,6 +1,12 @@
-# SPEC — pi-bridge (dsh-pi-bridge)
+# pi-bridge (dsh-pi-bridge) 设计
 
-> dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json` + `auth.json`）在**内存中**转换为 dsh 的 LLM 路由，即转即用、绝不落地。相当于一座 auth adapter 桥。
+> 状态：已落地（v0.1.0）
+>
+> 日期：2026-08-29
+>
+> 本文是设计真相源；设计变更先改本文，再改代码。
+
+dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json` + `auth.json`）在**内存中**转换为 dsh 的 LLM 路由，即转即用、绝不落地。相当于一座 auth adapter 桥。
 
 ## 0. 背景事实（已核实，不要重新调研）
 
@@ -16,25 +22,25 @@
   - `"!cmd args"` → shell 命令，请求时执行取 stdout
   - 其他 → 字面量
 
-### dsh 侧（参考源码已克隆在 `/tmp/dsh`）
+### dsh 侧
 - 插件 = TS 模块导出 `name` + `Config`（schemastery）+ `apply(ctx, config)`；经 cordis.yml `insert` 以绝对路径加载。
-- LLM seam：`@deepseek-ai/dsh-llm`（npm 已发布 0.0.1-rc.1）。核心契约读 `/tmp/dsh/packages/llm/llm/src/types.ts`：
+- LLM seam：`@deepseek-ai/dsh-llm`。核心契约见其 `src/types.ts`：
   - `ctx.llm.registerAdapter(routes: string[], adapter: LlmAdapter)`（重复路由抛错；返回 disposable）
   - `LlmAdapter`：实现 `stream(options): AsyncIterable<StreamChunk>`、`resolveModel()`、`listProviders()`、`listModels()` 等（以实际类型为准）
-- **参考实现**：`/tmp/dsh/packages/llm/llm-pi-ai/src/`（adapter.ts / stream.ts / provider.ts / auth.ts）——本插件是它的极简特化：无 settings seam、无登录流程、无 retry 包、纯内存凭据。
-- 协议义务（必须遵守，详见 `/tmp/dsh/docs/cookbook/adding-an-llm-adapter.md`）：
+- **参考实现**：dsh 仓库 `packages/llm/llm-pi-ai/src/`（adapter.ts / stream.ts / provider.ts / auth.ts）——本插件是它的极简特化：无 settings seam、无登录流程、无 retry 包、纯内存凭据。
+- 协议义务（必须遵守，详见 dsh 仓库 `docs/cookbook/adding-an-llm-adapter.md`）：
   - `usage` 在 `finish` 之前发出；`finish` 之后不再发任何 chunk
   - 工具调用 `arguments` 为原始 JSON 字符串，流式用 `argumentsDelta`
   - 块 `index` 按首次出现顺序分配并复用
   - 错误仅两条路径：`stream()` 抛 `LlmError`（带稳定 code），或 `finish {kind:'error'|'aborted'}`
   - 遵守 `options.signal`
   - 不支持的 option → 抛 `LlmError(..., 'UNSUPPORTED_OPTION')`，不静默丢弃
-- pi-ai 库：`@earendil-works/pi-ai`@^0.84（npm 已发布），导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
+- pi-ai 库：`@earendil-works/pi-ai`@^0.84，导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
 
 ## 1. 项目形态
 
-- 目录：`/mnt/agents/output/pi-bridge/`，独立 npm 包 `dsh-pi-bridge`，ESM，TypeScript。
-- dependencies: `@earendil-works/pi-ai`
+- 独立 npm 包 `dsh-pi-bridge`，ESM，TypeScript。
+- dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`
 - peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`
 - devDependencies: `typescript`, `vitest`, `@types/node`
 - 构建：`tsc` → `dist/`（ESM + .d.ts）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
@@ -94,9 +100,9 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - pi-auth：api_key、oauth（过期/未过期）、文件缺失、坏 JSON、非法条目跳过、`$ENV`/字面量/`!cmd`（mock exec）
 - convert：内置 provider 路由、models.json 自定义 provider 全字段映射、白名单、前缀、apiKey 优先级
 - adapter：用 pi-ai 的 mock/fake 流验证 chunk 顺序（usage→finish）、tool-call argumentsDelta、signal 中止、UNSUPPORTED_OPTION
-- 全部 `pnpm test`（或 `npx vitest run`）必须通过
+- 全部 `npm test`（或 `npx vitest run`）必须通过
 
-## 4. README 要点
+## 4. README 要点（已落实）
 - 安装与 cordis.yml 配置示例（绝对路径 insert 两种：src/index.ts 与 dist/index.js）
 - 与官方 `@deepseek-ai/dsh-llm-pi-ai` 的区别（那个面向 harness 自有凭据/登录体系；本插件零配置复用 pi 已有登录态，不落地）
 - 安全说明：只读 pi 文件；凭据全程内存；不修改 `~/.pi` 与 `$DSH_HOME` 下任何文件
