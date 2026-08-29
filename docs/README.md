@@ -5,4 +5,4 @@
 
 ## 规格
 
-- [pi-bridge 设计](./spec/2026-08-29-pi-bridge-design.md) — 设计真相源；背景事实、模块划分、协议义务、测试与 README 要点
+- [pi-auth-bridge 设计](./spec/2026-08-29-pi-auth-bridge-design.md) — 设计真相源；背景事实、模块划分、协议义务、测试与 README 要点

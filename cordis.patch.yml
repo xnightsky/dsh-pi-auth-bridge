@@ -1,6 +1,6 @@
-# dsh-pi-bridge bundle patch：以包名挂载插件，id 即插件名。
+# dsh-pi-auth-bridge bundle patch：以包名挂载插件，id 即插件名。
 # config 留空走默认（零配置）；用户可在 profile 层 cordis.patch.yml 用同 id
 # 覆盖 config（可选项见 README「在 dsh 中使用」）。
 - insert:
-    - id: pi-bridge
-      name: dsh-pi-bridge
+    - id: pi-auth-bridge
+      name: dsh-pi-auth-bridge

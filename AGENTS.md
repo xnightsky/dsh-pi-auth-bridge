@@ -12,7 +12,7 @@
 - 本库是 dsh 插件：把本机 pi（Pi coding agent）的认证（`auth.json` + `models.json`）在内存中转换为 dsh 的 LLM 路由，即转即用、绝不落地。
 - 只读 pi 配置文件；凭据全程只存在于内存：不写 dsh 凭据存储、不写任何文件、不修改 `~/.pi` 与 `$DSH_HOME` 下任何内容。
 - LLM 契约以 `@deepseek-ai/dsh-llm` 的公开接口为准，模型调用依赖 `@earendil-works/pi-ai`；禁止重复实现协议或维护第二套凭据体系。
-- `docs/spec/2026-08-29-pi-bridge-design.md` 是设计真相源；设计变更先改设计文档，再改代码。
+- `docs/spec/2026-08-29-pi-auth-bridge-design.md` 是设计真相源；设计变更先改设计文档，再改代码。
 
 ## 开发命令
 

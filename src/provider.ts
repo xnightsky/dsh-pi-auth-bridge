@@ -9,7 +9,7 @@
  *   机制轮换；绝不写盘、不写 dsh 凭据面、不回写 `~/.pi`。
  * - 任何不可服务的路由都跳过并 warn，绝不静默失败。
  *
- * @module dsh-pi-bridge/provider
+ * @module dsh-pi-auth-bridge/provider
  */
 import {
   createModels,
@@ -128,12 +128,12 @@ function materializeModels(
     const base = byId.get(def.id)
     const api = (fallback.api ?? base?.api) as Api | undefined
     if (api === undefined) {
-      warn(`pi-bridge: provider "${route.providerId}": model "${def.id}" has no api and the pi-ai catalog cannot supply one; model skipped`)
+      warn(`pi-auth-bridge: provider "${route.providerId}": model "${def.id}" has no api and the pi-ai catalog cannot supply one; model skipped`)
       continue
     }
     const baseUrl = fallback.baseUrl ?? base?.baseUrl
     if (baseUrl === undefined) {
-      warn(`pi-bridge: provider "${route.providerId}": model "${def.id}" has no baseUrl; model skipped`)
+      warn(`pi-auth-bridge: provider "${route.providerId}": model "${def.id}" has no baseUrl; model skipped`)
       continue
     }
     models.push({
@@ -171,7 +171,7 @@ function reuseCatalogProvider(catalog: Provider, route: RouteDef, warn: Warn): P
         warn,
       )
   if (models.length === 0) {
-    warn(`pi-bridge: provider "${route.providerId}": no servable models; route skipped`)
+    warn(`pi-auth-bridge: provider "${route.providerId}": no servable models; route skipped`)
     return undefined
   }
   return {
@@ -191,31 +191,31 @@ function buildProvider(route: RouteDef, warn: Warn): Provider | undefined {
   // 无协议覆盖的目录路由复用已安装 provider，保留其 API 实现、兼容 quirks 与环境认证。
   if (catalog !== undefined && route.api === undefined) return reuseCatalogProvider(catalog, route, warn)
   if (catalog === undefined && route.kind === 'builtin') {
-    warn(`pi-bridge: provider "${route.providerId}" has credentials but is unknown to the pi-ai catalog and not described by models.json; route skipped`)
+    warn(`pi-auth-bridge: provider "${route.providerId}" has credentials but is unknown to the pi-ai catalog and not described by models.json; route skipped`)
     return undefined
   }
   if (catalog === undefined && route.apiKey === undefined && route.oauth !== undefined) {
     // pi-ai 的 OAuth 刷新机制只存在于目录 provider；只持过期 OAuth 的自定义
     // provider 若注册，会得到一条必然 401 的死路由。
-    warn(`pi-bridge: provider "${route.providerId}": expired OAuth credential cannot be refreshed for a custom provider (no pi-ai catalog auth); route skipped`)
+    warn(`pi-auth-bridge: provider "${route.providerId}": expired OAuth credential cannot be refreshed for a custom provider (no pi-ai catalog auth); route skipped`)
     return undefined
   }
   const factory = route.api === undefined ? undefined : PROTOCOLS[route.api]
   if (factory === undefined) {
-    warn(`pi-bridge: provider "${route.providerId}" names api "${route.api ?? '(none)'}", which this bridge cannot serve; supported protocols are ${Object.keys(PROTOCOLS).join(', ')}; route skipped`)
+    warn(`pi-auth-bridge: provider "${route.providerId}" names api "${route.api ?? '(none)'}", which this bridge cannot serve; supported protocols are ${Object.keys(PROTOCOLS).join(', ')}; route skipped`)
     return undefined
   }
   if (route.baseURL === undefined) {
-    warn(`pi-bridge: provider "${route.providerId}" is a custom provider without a baseUrl; route skipped`)
+    warn(`pi-auth-bridge: provider "${route.providerId}" is a custom provider without a baseUrl; route skipped`)
     return undefined
   }
   if (route.models.length === 0) {
-    warn(`pi-bridge: provider "${route.providerId}" declares no models in models.json; route skipped`)
+    warn(`pi-auth-bridge: provider "${route.providerId}" declares no models in models.json; route skipped`)
     return undefined
   }
   const models = materializeModels(route, route.models, { api: route.api as Api, baseUrl: route.baseURL }, warn)
   if (models.length === 0) {
-    warn(`pi-bridge: provider "${route.providerId}": no servable models; route skipped`)
+    warn(`pi-auth-bridge: provider "${route.providerId}": no servable models; route skipped`)
     return undefined
   }
   return createProvider({

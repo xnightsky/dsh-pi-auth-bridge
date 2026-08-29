@@ -1,4 +1,4 @@
-# pi-bridge (dsh-pi-bridge)
+# pi-auth-bridge (dsh-pi-auth-bridge)
 
 > **中文** | [English](./README.en.md)
 
@@ -11,7 +11,7 @@
 ## 安装
 
 ```bash
-cd pi-bridge
+cd pi-auth-bridge
 npm install
 npm run build   # 产出 dist/（ESM + .d.ts）
 ```
@@ -24,18 +24,18 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 
 ### 作为 dsh bundle（官方方式）
 
-本包遵循 dsh 插件官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`，`package.json` 声明 `dsh.bundle.patch` 指向根目录的 `cordis.patch.yml`（默认零配置挂载，id 为 `pi-bridge`）。装入 profile：
+本包遵循 dsh 插件官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`，`package.json` 声明 `dsh.bundle.patch` 指向根目录的 `cordis.patch.yml`（默认零配置挂载，id 为 `pi-auth-bridge`）。装入 profile：
 
 ```bash
-dsh plugin --profile <name> add /abs/path/dsh-pi-bridge   # 本地路径或 npm 包名均可
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或 npm 包名均可
 ```
 
 需要改配置时，在 profile 层 `cordis.patch.yml` 用同 id 覆盖：
 
 ```yaml
 - insert:
-    - id: pi-bridge
-      name: dsh-pi-bridge
+    - id: pi-auth-bridge
+      name: dsh-pi-auth-bridge
       config:
         # piDir: /custom/pi/agent        # 覆盖 pi 配置目录
         # providers: [anthropic, openai] # 只桥接白名单内的 provider
@@ -49,10 +49,10 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-bridge   # 本地路径或 npm 
 
 ```yaml
 # 直接加载 TypeScript 源码（dsh 支持按绝对路径加载 TS 插件入口）
-- insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/src/index.ts' }]
+- insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/src/index.ts' }]
 
 # 或加载构建产物
-- insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/dist/index.js' }]
+- insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/dist/index.js' }]
 ```
 
 挂载后，路由名固定为 `pi/<providerId>`（如 `pi/openai`），分组标题恒以「Pi · 」冠名（如 `Pi · OpenAI`）——dsh web 的模型选择器只有「分组 → 模型」两级，PI 无法成为真正的三级渠道，出处由路由前缀与分组标题共同表达，与 dsh 原生 provider 一眼可分。模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。
@@ -60,17 +60,17 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-bridge   # 本地路径或 npm 
 ## 工作原理
 
 ```
-locatePiDir → readPiAuth/readPiModels → buildRoutes → PiBridgeAdapter → ctx.llm.registerAdapter
+locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter → ctx.llm.registerAdapter
 ```
 
 1. **定位**（`pi-locator.ts`）：显式 `piDir` > `$PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`；目录须含 `auth.json` 或 `models.json` 至少其一。
-2. **读取**（`pi-auth.ts`）：文件缺失 → `undefined`；JSON 损坏 → 带路径的 `PiBridgeError`（插件层捕获后空挂载 + warn）；单条非法条目 → 跳过 + warn。
+2. **读取**（`pi-auth.ts`）：文件缺失 → `undefined`；JSON 损坏 → 带路径的 `PiAuthBridgeError`（插件层捕获后空挂载 + warn）；单条非法条目 → 跳过 + warn。
 3. **转换**（`convert.ts`，纯函数）：
    - `auth.json` 中有凭据的 provider → 内置路由（provider 元数据交给 pi-ai 内置目录）；
    - `models.json` 中的自定义 provider → `{ api, baseURL, models, headers, authHeader }` 全字段映射；
    - apiKey 优先级：`auth.json` 同名条目 > `models.json` 的 `apiKey` 字段；
    - 取值解析与 pi 一致：`"$ENV_VAR"` 读环境变量、`"!cmd args"` 执行 shell 命令取 stdout（默认 10s 超时，内存缓存，每次挂载最多执行一次）、其余为字面量。
-4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件 v1 不支持：遇 image block 抛 `UNSUPPORTED_OPTION`。
+4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件 v1 不支持：遇 image block 抛 `UNSUPPORTED_OPTION`。
 
 ## OAuth 凭据的处理与限制
 
@@ -82,7 +82,7 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiBridgeAdapter → 
 
 ## 与 `@deepseek-ai/dsh-llm-pi-ai` 的区别
 
-| | dsh-llm-pi-ai（官方） | pi-bridge（本插件） |
+| | dsh-llm-pi-ai（官方） | pi-auth-bridge（本插件） |
 |---|---|---|
 | 凭据来源 | harness 自有凭据存储 / 登录流程（`ctx.credentials`、OAuth 登录） | 复用本机 pi 已有的 `auth.json` 登录态 |
 | 配置 | settings seam，profile 逐字段覆盖目录 | 零配置（仅 5 个可选项） |

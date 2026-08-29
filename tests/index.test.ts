@@ -9,7 +9,7 @@ import { apply, Config, inject, name } from '../src/index.js'
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'pi-bridge-plugin-'))
+  dir = mkdtempSync(join(tmpdir(), 'pi-auth-bridge-plugin-'))
 })
 
 afterEach(() => {
@@ -59,7 +59,7 @@ function baseCaptured(withLlm = true): Captured {
 
 describe('plugin metadata', () => {
   it('exposes the plugin name, llm inject declaration, and a validating Config schema', () => {
-    expect(name).toBe('pi-bridge')
+    expect(name).toBe('pi-auth-bridge')
     expect(inject).toEqual(['llm'])
     expect(Config({})).toMatchObject({ includeOAuth: true, commandTimeoutMs: 10_000 })
     expect(Config({ providers: ['openai'] })).toMatchObject({ providers: ['openai'] })

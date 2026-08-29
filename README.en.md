@@ -1,4 +1,4 @@
-# pi-bridge (dsh-pi-bridge)
+# pi-auth-bridge (dsh-pi-auth-bridge)
 
 > [中文](./README.md) | **English**
 
@@ -11,7 +11,7 @@ Converts the local **pi** (pi-mono / Pi coding agent) auth configuration (`auth.
 ## Installation
 
 ```bash
-cd pi-bridge
+cd pi-auth-bridge
 npm install
 npm run build   # produces dist/ (ESM + .d.ts)
 ```
@@ -24,18 +24,18 @@ Dependencies: `@earendil-works/pi-ai` (runtime); `@deepseek-ai/cordis` and `@dee
 
 ### As a dsh bundle (official way)
 
-This package follows the official dsh plugin convention: the entry point exports `name` / `inject: ['llm']` / `Config` / `apply`, and `package.json` declares `dsh.bundle.patch` pointing at the root `cordis.patch.yml` (zero-config mount by default, id `pi-bridge`). Add it to a profile:
+This package follows the official dsh plugin convention: the entry point exports `name` / `inject: ['llm']` / `Config` / `apply`, and `package.json` declares `dsh.bundle.patch` pointing at the root `cordis.patch.yml` (zero-config mount by default, id `pi-auth-bridge`). Add it to a profile:
 
 ```bash
-dsh plugin --profile <name> add /abs/path/dsh-pi-bridge   # local path or npm package name
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # local path or npm package name
 ```
 
 To override the config, use the same id in the profile-level `cordis.patch.yml`:
 
 ```yaml
 - insert:
-    - id: pi-bridge
-      name: dsh-pi-bridge
+    - id: pi-auth-bridge
+      name: dsh-pi-auth-bridge
       config:
         # piDir: /custom/pi/agent        # override the pi config directory
         # providers: [anthropic, openai] # bridge only whitelisted providers
@@ -49,10 +49,10 @@ Bypass the bundle mechanism and `insert` directly in any cordis config layer; bo
 
 ```yaml
 # Load the TypeScript source directly (dsh can load a TS plugin entry by absolute path)
-- insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/src/index.ts' }]
+- insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/src/index.ts' }]
 
 # or load the build output
-- insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/dist/index.js' }]
+- insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/dist/index.js' }]
 ```
 
 Once mounted, route names carry the fixed `pi/<providerId>` prefix (e.g. `pi/openai`), and group titles are always crowned with `Pi · ` (e.g. `Pi · OpenAI`) — the dsh web model picker has only two levels ("group → model"), so PI cannot be a true third-level channel; its origin is expressed jointly by the route prefix and the group title, plainly distinguishable from dsh-native providers. The model catalog comes from the pi-ai built-in catalog or custom declarations in `models.json`.
@@ -60,17 +60,17 @@ Once mounted, route names carry the fixed `pi/<providerId>` prefix (e.g. `pi/ope
 ## How it works
 
 ```
-locatePiDir → readPiAuth/readPiModels → buildRoutes → PiBridgeAdapter → ctx.llm.registerAdapter
+locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter → ctx.llm.registerAdapter
 ```
 
 1. **Locate** (`pi-locator.ts`): explicit `piDir` > `$PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`; the directory must contain at least one of `auth.json` / `models.json`.
-2. **Read** (`pi-auth.ts`): missing file → `undefined`; corrupt JSON → `PiBridgeError` with the path (caught at the plugin layer → empty mount + warn); a single invalid entry → skipped + warn.
+2. **Read** (`pi-auth.ts`): missing file → `undefined`; corrupt JSON → `PiAuthBridgeError` with the path (caught at the plugin layer → empty mount + warn); a single invalid entry → skipped + warn.
 3. **Convert** (`convert.ts`, pure function):
    - a provider with credentials in `auth.json` → a builtin route (provider metadata delegated to the pi-ai built-in catalog);
    - a custom provider in `models.json` → full-field mapping of `{ api, baseURL, models, headers, authHeader }`;
    - apiKey priority: same-named `auth.json` entry > the `apiKey` field of `models.json`;
    - value resolution matches pi itself: `"$ENV_VAR"` reads an environment variable, `"!cmd args"` runs a shell command and takes its stdout (10s default timeout, in-memory cache, at most one execution per mount), anything else is a literal.
-4. **Adapt** (`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`): `PiBridgeAdapter extends LlmAdapter`, builds the pi-ai collection with `createModels`, and passes credentials via a per-request `apiKey` override (routes with `authHeader: true` send the key as an `Authorization: Bearer <key>` header instead); honors the dsh adapter contract (`usage` before `finish`, no chunks after `finish`, tool-call `arguments` as a raw JSON string, `argumentsDelta` for streaming, block `index` assigned on first appearance and reused, errors only via `LlmError` or `finish {kind:'error'|'aborted'}`, respects `options.signal`, unsupported options raise `UNSUPPORTED_OPTION`); every request carries the dsh-llm-mandated `attributionHeaders()` attribution headers (colliding custom headers yield, with a build-time warn). Image attachments are not supported in v1: an image block raises `UNSUPPORTED_OPTION`.
+4. **Adapt** (`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`): `PiAuthBridgeAdapter extends LlmAdapter`, builds the pi-ai collection with `createModels`, and passes credentials via a per-request `apiKey` override (routes with `authHeader: true` send the key as an `Authorization: Bearer <key>` header instead); honors the dsh adapter contract (`usage` before `finish`, no chunks after `finish`, tool-call `arguments` as a raw JSON string, `argumentsDelta` for streaming, block `index` assigned on first appearance and reused, errors only via `LlmError` or `finish {kind:'error'|'aborted'}`, respects `options.signal`, unsupported options raise `UNSUPPORTED_OPTION`); every request carries the dsh-llm-mandated `attributionHeaders()` attribution headers (colliding custom headers yield, with a build-time warn). Image attachments are not supported in v1: an image block raises `UNSUPPORTED_OPTION`.
 
 ## OAuth credential handling and limits
 
@@ -82,7 +82,7 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiBridgeAdapter → 
 
 ## Differences from `@deepseek-ai/dsh-llm-pi-ai`
 
-| | dsh-llm-pi-ai (official) | pi-bridge (this plugin) |
+| | dsh-llm-pi-ai (official) | pi-auth-bridge (this plugin) |
 |---|---|---|
 | Credential source | harness-owned credential store / login flows (`ctx.credentials`, OAuth login) | reuses the local pi `auth.json` login state |
 | Configuration | settings seam, per-field profile overrides of the catalog | zero config (only 5 optional knobs) |

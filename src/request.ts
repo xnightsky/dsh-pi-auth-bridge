@@ -8,7 +8,7 @@
  * - 工具调用 arguments 在 pi-ai 历史里是解析后的对象；模型产生的畸形 JSON
  *   容忍为 `{}`，不让历史转换拖垮请求。
  *
- * @module dsh-pi-bridge/request
+ * @module dsh-pi-auth-bridge/request
  */
 import type { ContentBlock, GenerateOptions, Message as DshMessage, ToolResultBlock } from '@deepseek-ai/dsh-llm'
 import type {

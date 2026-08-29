@@ -1,5 +1,5 @@
 /**
- * pi-bridge：一个 dsh 插件，把本机 pi（Pi coding agent）安装的认证信息
+ * pi-auth-bridge：一个 dsh 插件，把本机 pi（Pi coding agent）安装的认证信息
  * （`auth.json` + `models.json`）桥接为 dsh 的 LLM 路由。
  *
  * 零配置、仅存于内存：凭据在挂载时从 pi 的文件读取，绝不写到任何地方
@@ -12,10 +12,10 @@
  *
  * ```yaml
  * # cordis.yml
- * - insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/src/index.ts' }]
+ * - insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/src/index.ts' }]
  * ```
  *
- * @module dsh-pi-bridge
+ * @module dsh-pi-auth-bridge
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
@@ -23,10 +23,10 @@ import z from '@deepseek-ai/schemastery'
 import { locatePiDir } from './pi-locator.js'
 import { createValueResolver, readPiAuth, readPiModels, type Warn } from './pi-auth.js'
 import { buildRoutes } from './convert.js'
-import { PiBridgeAdapter } from './adapter.js'
+import { PiAuthBridgeAdapter } from './adapter.js'
 
 export { locatePiDir } from './pi-locator.js'
-export { PiBridgeError, createValueResolver, readPiAuth, readPiModels, resolvePiValue } from './pi-auth.js'
+export { PiAuthBridgeError, createValueResolver, readPiAuth, readPiModels, resolvePiValue } from './pi-auth.js'
 export type { PiAuthEntry, PiModelDef, PiModelsFile, PiProviderDef } from './pi-auth.js'
 export { buildRoutes, PI_ROUTE_PREFIX } from './convert.js'
 export type { RouteDef } from './convert.js'
@@ -34,9 +34,9 @@ export { buildPiModels } from './provider.js'
 export type { BuiltPiModels, PiModelsLike } from './provider.js'
 export { toPiContext } from './request.js'
 export { mapStopReason, mapUsage, toStreamChunks } from './stream.js'
-export { PiBridgeAdapter } from './adapter.js'
+export { PiAuthBridgeAdapter } from './adapter.js'
 
-export const name = 'pi-bridge'
+export const name = 'pi-auth-bridge'
 
 /**
  * LLM 适配器插件的官方约定：声明对 `llm` 服务（`@deepseek-ai/dsh-llm` 的
@@ -45,7 +45,7 @@ export const name = 'pi-bridge'
  */
 export const inject = ['llm']
 
-/** pi-bridge 插件配置。 */
+/** pi-auth-bridge 插件配置。 */
 export interface Config {
   /** 覆盖 pi 配置目录（默认 `$PI_CODING_AGENT_DIR` 或 `~/.pi/agent`）。 */
   piDir?: string
@@ -71,13 +71,13 @@ export function apply(ctx: Context, config: Config): void {
 
   const llm = ctx.llm as LlmRuntime | undefined
   if (llm === undefined) {
-    warn('pi-bridge: the llm service is not mounted in this composition; plugin mounted with no routes')
+    warn('pi-auth-bridge: the llm service is not mounted in this composition; plugin mounted with no routes')
     return
   }
 
   const dir = locatePiDir(config.piDir === undefined ? {} : { piDir: config.piDir })
   if (dir === undefined) {
-    warn('pi-bridge: pi configuration directory not found (looked at $PI_CODING_AGENT_DIR and ~/.pi/agent); plugin mounted with no routes')
+    warn('pi-auth-bridge: pi configuration directory not found (looked at $PI_CODING_AGENT_DIR and ~/.pi/agent); plugin mounted with no routes')
     return
   }
 
@@ -88,7 +88,7 @@ export function apply(ctx: Context, config: Config): void {
     models = readPiModels(dir, { warn })
   } catch (error) {
     // 损坏的 pi 文件只会禁用桥接器，绝不影响组合。
-    warn(`pi-bridge: cannot load pi configuration: ${(error as Error).message}; plugin mounted with no routes`)
+    warn(`pi-auth-bridge: cannot load pi configuration: ${(error as Error).message}; plugin mounted with no routes`)
     return
   }
 
@@ -101,13 +101,13 @@ export function apply(ctx: Context, config: Config): void {
     warn,
   })
   if (routes.length === 0) {
-    warn(`pi-bridge: no usable provider credentials found in ${dir}; plugin mounted with no routes`)
+    warn(`pi-auth-bridge: no usable provider credentials found in ${dir}; plugin mounted with no routes`)
     return
   }
 
-  const adapter = new PiBridgeAdapter(routes, undefined, { warn })
+  const adapter = new PiAuthBridgeAdapter(routes, undefined, { warn })
   if (adapter.routes.length === 0) {
-    warn(`pi-bridge: none of the ${routes.length} candidate route(s) in ${dir} can be served; plugin mounted with no routes`)
+    warn(`pi-auth-bridge: none of the ${routes.length} candidate route(s) in ${dir} can be served; plugin mounted with no routes`)
     return
   }
 
@@ -116,6 +116,6 @@ export function apply(ctx: Context, config: Config): void {
   // fiber-disposal hook (registerAdapter is also fiber-disposed itself).
   ctx.effect(() => () => {
     handle()
-  }, 'pi-bridge: unregister llm adapter')
-  logger.info(`pi-bridge: bridged ${adapter.routes.length} route(s) from ${dir}: ${adapter.routes.join(', ')}`)
+  }, 'pi-auth-bridge: unregister llm adapter')
+  logger.info(`pi-auth-bridge: bridged ${adapter.routes.length} route(s) from ${dir}: ${adapter.routes.join(', ')}`)
 }

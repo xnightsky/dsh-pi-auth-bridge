@@ -9,7 +9,7 @@
  * 每个环境接触点（环境变量、homedir、文件系统存在性、路径拼接）都可注入，
  * 因此 win32 与 posix 的路径逻辑可以在任一平台上单元测试，无需触碰真实机器。
  *
- * @module dsh-pi-bridge/pi-locator
+ * @module dsh-pi-auth-bridge/pi-locator
  */
 import { existsSync } from 'node:fs'
 import { homedir as osHomedir } from 'node:os'

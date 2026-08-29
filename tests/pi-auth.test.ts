@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  PiBridgeError,
+  PiAuthBridgeError,
   createValueResolver,
   readPiAuth,
   readPiModels,
@@ -13,7 +13,7 @@ import {
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'pi-bridge-test-'))
+  dir = mkdtempSync(join(tmpdir(), 'pi-auth-bridge-test-'))
 })
 
 afterEach(() => {
@@ -43,21 +43,21 @@ describe('readPiAuth', () => {
     })
   })
 
-  it('throws a PiBridgeError naming the path on corrupt JSON', () => {
+  it('throws a PiAuthBridgeError naming the path on corrupt JSON', () => {
     write('auth.json', '{ not json')
     try {
       readPiAuth(dir)
       expect.unreachable()
     } catch (error) {
-      expect(error).toBeInstanceOf(PiBridgeError)
-      expect((error as PiBridgeError).path).toBe(join(dir, 'auth.json'))
+      expect(error).toBeInstanceOf(PiAuthBridgeError)
+      expect((error as PiAuthBridgeError).path).toBe(join(dir, 'auth.json'))
       expect((error as Error).message).toContain('auth.json')
     }
   })
 
   it('throws on a non-object top level', () => {
     write('auth.json', '["nope"]')
-    expect(() => readPiAuth(dir)).toThrow(PiBridgeError)
+    expect(() => readPiAuth(dir)).toThrow(PiAuthBridgeError)
   })
 
   it('skips illegal entries with a warn instead of failing the file', () => {
@@ -123,12 +123,12 @@ describe('readPiModels', () => {
 
   it('throws when "providers" is not an object', () => {
     write('models.json', '{"providers": []}')
-    expect(() => readPiModels(dir)).toThrow(PiBridgeError)
+    expect(() => readPiModels(dir)).toThrow(PiAuthBridgeError)
   })
 
-  it('throws a PiBridgeError on corrupt JSON', () => {
+  it('throws a PiAuthBridgeError on corrupt JSON', () => {
     write('models.json', '!!')
-    expect(() => readPiModels(dir)).toThrow(PiBridgeError)
+    expect(() => readPiModels(dir)).toThrow(PiAuthBridgeError)
   })
 })
 

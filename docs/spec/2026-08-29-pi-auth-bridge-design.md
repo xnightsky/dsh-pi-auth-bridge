@@ -1,4 +1,4 @@
-# pi-bridge (dsh-pi-bridge) 设计
+# pi-auth-bridge (dsh-pi-auth-bridge) 设计
 
 > 状态：已落地（v0.1.0）
 >
@@ -40,12 +40,12 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 
 ## 1. 项目形态
 
-- 独立 npm 包 `dsh-pi-bridge`，ESM，TypeScript。
+- 独立 npm 包 `dsh-pi-auth-bridge`，ESM，TypeScript。
 - dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`
 - peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`
 - devDependencies: `typescript`, `vitest`, `@types/node`
 - 构建：`tsc` → `dist/`（ESM + .d.ts）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
-- 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `pi-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。
+- 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `pi-auth-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。
 
 ## 2. 模块划分
 
@@ -57,7 +57,7 @@ src/
   provider.ts     # 由 RouteDef 构建 pi-ai Provider/Models（目录复用或 models.json 物化）
   request.ts      # dsh GenerateOptions → pi-ai Context 的请求转换
   stream.ts       # pi-ai 事件流 → dsh StreamChunk 的翻译（usage→finish）
-  adapter.ts      # PiBridgeAdapter implements LlmAdapter（组合以上三者）
+  adapter.ts      # PiAuthBridgeAdapter implements LlmAdapter（组合以上三者）
   index.ts        # cordis 插件入口
 tests/            # vitest
 README.md         # 中文为主，附 English 摘要
@@ -71,7 +71,7 @@ README.md         # 中文为主，附 English 摘要
 
 ### 2.2 pi-auth.ts
 - 类型：`PiAuthEntry = {type:'api_key',key:string} | {type:'oauth',access:string,refresh?:string,expires?:number}`
-- `readPiAuth(dir)`, `readPiModels(dir)`：文件不存在 → `undefined`；JSON 损坏 → 抛带路径信息的 `PiBridgeError`；条目形态非法 → 跳过该条并 warn（不整体失败）
+- `readPiAuth(dir)`, `readPiModels(dir)`：文件不存在 → `undefined`；JSON 损坏 → 抛带路径信息的 `PiAuthBridgeError`；条目形态非法 → 跳过该条并 warn（不整体失败）
 - `resolvePiValue(raw, {env, execCmd}): string | undefined`：实现 `$ENV` / `!cmd` / 字面量三态；`!cmd` 带超时（默认 10s）与内存缓存；失败返回 `undefined` 并 warn
 
 ### 2.3 convert.ts
@@ -82,7 +82,7 @@ README.md         # 中文为主，附 English 摘要
 - `opts.providers?: string[]` 白名单过滤；路由名**固定** `pi/<providerId>` 前缀（`PI_ROUTE_PREFIX`，不可配——避免与 dsh 原生及其他适配器路由撞名）；`displayName` 恒为 `Pi · <名称>`（custom 用其 `name`，builtin 用 provider id）——dsh web 选择器没有三级「渠道」结构，PI 出处只能由路由 id 前缀与分组标题共同表达（见 §0 末条）
 
 ### 2.4 adapter.ts（组合 provider.ts / request.ts / stream.ts）
-- `class PiBridgeAdapter extends LlmAdapter`：构造时接收冻结的 `RouteDef[]` 与 pi-ai `Models` 集合（`createModels` 构建，凭据经内存 CredentialStore/AuthContext 注入，或在每次 stream 调用以 `apiKey` override 传入——以 pi-ai 实际 API 为准，参照 llm-pi-ai 的做法）
+- `class PiAuthBridgeAdapter extends LlmAdapter`：构造时接收冻结的 `RouteDef[]` 与 pi-ai `Models` 集合（`createModels` 构建，凭据经内存 CredentialStore/AuthContext 注入，或在每次 stream 调用以 `apiKey` override 传入——以 pi-ai 实际 API 为准，参照 llm-pi-ai 的做法）
 - 遵守第 0 节全部协议义务；图片附件 v1 不支持 → 遇 image block 抛 `UNSUPPORTED_OPTION`
 - 凭据只存在于内存：不写 dsh 凭据存储、不写任何文件、不调用 `ctx.credentials.set`
 - **attribution 头是 dsh-llm 的强制协议义务**（`attributionHeaders()`，可替换不可抑制）：每次请求合并进 headers；`models.json` 自定义头与之同名（大小写不敏感）时让位，并在构建期 warn，不静默丢弃
@@ -93,7 +93,7 @@ README.md         # 中文为主，附 English 摘要
 
 ### 2.5 index.ts
 ```ts
-export const name = 'pi-bridge'
+export const name = 'pi-auth-bridge'
 export const Config = z.object({
   piDir: z.string().optional(),        // 覆盖 pi 配置目录
   providers: z.array(z.string()).optional(), // 白名单

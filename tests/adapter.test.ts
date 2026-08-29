@@ -17,7 +17,7 @@ import {
   type Message as DshMessage,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import { PiBridgeAdapter } from '../src/adapter.js'
+import { PiAuthBridgeAdapter } from '../src/adapter.js'
 import { buildPiModels, type PiModelsLike } from '../src/provider.js'
 import { toPiContext } from '../src/request.js'
 import type { RouteDef } from '../src/convert.js'
@@ -131,16 +131,16 @@ function makeAdapter(
   events: AssistantMessageEvent[] | ((options?: SimpleStreamOptions) => AsyncIterable<AssistantMessageEvent>),
   routeOverrides: Partial<RouteDef> = {},
   modelOverrides: Partial<Model<Api>> = {},
-): { adapter: PiBridgeAdapter; fake: FakeModels } {
+): { adapter: PiAuthBridgeAdapter; fake: FakeModels } {
   const fake = new FakeModels([fakeModel(modelOverrides)], typeof events === 'function' ? events : () => eventsOf(events))
-  return { adapter: new PiBridgeAdapter([fakeRoute(routeOverrides)], fake), fake }
+  return { adapter: new PiAuthBridgeAdapter([fakeRoute(routeOverrides)], fake), fake }
 }
 
 /* ------------------------------------------------------------------ */
 /* Stream protocol                                                     */
 /* ------------------------------------------------------------------ */
 
-describe('PiBridgeAdapter stream protocol', () => {
+describe('PiAuthBridgeAdapter stream protocol', () => {
   it('translates a text turn: block-start → deltas → block-end → usage → finish', async () => {
     const done: AssistantMessageEvent = {
       type: 'done',
@@ -240,7 +240,7 @@ describe('PiBridgeAdapter stream protocol', () => {
 /* Option validation                                                   */
 /* ------------------------------------------------------------------ */
 
-describe('PiBridgeAdapter option validation', () => {
+describe('PiAuthBridgeAdapter option validation', () => {
   it('rejects GenerateOptions.stop with UNSUPPORTED_OPTION', async () => {
     const { adapter } = makeAdapter([])
     await expect(collect(adapter.stream(genOptions({ stop: ['###'] })))).rejects.toMatchObject({
@@ -295,7 +295,7 @@ describe('PiBridgeAdapter option validation', () => {
 /* Request plumbing                                                    */
 /* ------------------------------------------------------------------ */
 
-describe('PiBridgeAdapter request plumbing', () => {
+describe('PiAuthBridgeAdapter request plumbing', () => {
   it('passes the resolved api key, sampling options, and attribution headers to pi-ai', async () => {
     const { adapter, fake } = makeAdapter(
       [{ type: 'done', reason: 'stop', message: piAssistant() }],
@@ -331,7 +331,7 @@ describe('PiBridgeAdapter request plumbing', () => {
     const fake = new FakeModels([fakeModel()], () => eventsOf([{ type: 'done', reason: 'stop', message: piAssistant() }]))
     const colliding = Object.keys(attributionHeaders())[0]
     if (colliding === undefined) throw new Error('attributionHeaders() returned no headers')
-    const adapter = new PiBridgeAdapter(
+    const adapter = new PiAuthBridgeAdapter(
       [fakeRoute({ headers: { [colliding]: 'user-value', 'x-team': 'blue' } })],
       fake,
       { warn: (message) => warnings.push(message) },
@@ -405,7 +405,7 @@ describe('buildPiModels', () => {
 /* Catalog surface                                                     */
 /* ------------------------------------------------------------------ */
 
-describe('PiBridgeAdapter catalog surface', () => {
+describe('PiAuthBridgeAdapter catalog surface', () => {
   it('describes provider info and models', async () => {
     const { adapter } = makeAdapter([])
     expect(adapter.providerInfo('openai')).toEqual({ id: 'openai', name: 'OpenAI (pi)' })

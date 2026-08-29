@@ -5,7 +5,7 @@
  * 本模块对 pi 目录的一切操作都是只读的：绝不创建、修改或删除任何文件。
  * 解析出的机密只存在于内存中。
  *
- * @module dsh-pi-bridge/pi-auth
+ * @module dsh-pi-auth-bridge/pi-auth
  */
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -43,11 +43,11 @@ export interface PiModelsFile {
 }
 
 /** 读取或解析 pi 配置文件失败的错误；始终指明文件名。 */
-export class PiBridgeError extends Error {
+export class PiAuthBridgeError extends Error {
   readonly path: string
   constructor(path: string, message: string, options?: ErrorOptions) {
-    super(`pi-bridge: ${path}: ${message}`, options)
-    this.name = 'PiBridgeError'
+    super(`pi-auth-bridge: ${path}: ${message}`, options)
+    this.name = 'PiAuthBridgeError'
     this.path = path
   }
 }
@@ -157,19 +157,19 @@ function parseProviderDef(value: unknown): PiProviderDef | undefined {
   }
 }
 
-/** 读取并解析一个 JSON 文件；文件不存在返回 undefined，损坏时抛 PiBridgeError。 */
+/** 读取并解析一个 JSON 文件；文件不存在返回 undefined，损坏时抛 PiAuthBridgeError。 */
 function readJsonFile(path: string): unknown {
   let text: string
   try {
     text = readFileSync(path, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-    throw new PiBridgeError(path, `cannot read file: ${(error as Error).message}`, { cause: error })
+    throw new PiAuthBridgeError(path, `cannot read file: ${(error as Error).message}`, { cause: error })
   }
   try {
     return JSON.parse(text) as unknown
   } catch (error) {
-    throw new PiBridgeError(path, `invalid JSON: ${(error as Error).message}`, { cause: error })
+    throw new PiAuthBridgeError(path, `invalid JSON: ${(error as Error).message}`, { cause: error })
   }
 }
 
@@ -180,7 +180,7 @@ export interface ReadPiOptions {
 
 /**
  * 读取 pi 的 `auth.json`。文件缺失 → `undefined`；JSON 损坏或顶层不是
- * 对象 → {@link PiBridgeError}；单条非法条目发出警告后跳过，一个坏
+ * 对象 → {@link PiAuthBridgeError}；单条非法条目发出警告后跳过，一个坏
  * provider 绝不拖垮其余。
  */
 export function readPiAuth(dir: string, options: ReadPiOptions = {}): Record<string, PiAuthEntry> | undefined {
@@ -188,12 +188,12 @@ export function readPiAuth(dir: string, options: ReadPiOptions = {}): Record<str
   const path = join(dir, 'auth.json')
   const raw = readJsonFile(path)
   if (raw === undefined) return undefined
-  if (!isRecord(raw)) throw new PiBridgeError(path, 'expected a JSON object keyed by provider id')
+  if (!isRecord(raw)) throw new PiAuthBridgeError(path, 'expected a JSON object keyed by provider id')
   const auth: Record<string, PiAuthEntry> = {}
   for (const [provider, value] of Object.entries(raw)) {
     const entry = parseAuthEntry(value)
     if (entry === undefined) {
-      warn(`pi-bridge: auth.json: skipping provider "${provider}": not a valid api_key/oauth entry`)
+      warn(`pi-auth-bridge: auth.json: skipping provider "${provider}": not a valid api_key/oauth entry`)
       continue
     }
     auth[provider] = entry
@@ -207,16 +207,16 @@ export function readPiModels(dir: string, options: ReadPiOptions = {}): PiModels
   const path = join(dir, 'models.json')
   const raw = readJsonFile(path)
   if (raw === undefined) return undefined
-  if (!isRecord(raw)) throw new PiBridgeError(path, 'expected a JSON object with a "providers" key')
+  if (!isRecord(raw)) throw new PiAuthBridgeError(path, 'expected a JSON object with a "providers" key')
   const rawProviders = raw['providers']
   if (rawProviders !== undefined && !isRecord(rawProviders)) {
-    throw new PiBridgeError(path, '"providers" must be an object keyed by provider id')
+    throw new PiAuthBridgeError(path, '"providers" must be an object keyed by provider id')
   }
   const providers: Record<string, PiProviderDef> = {}
   for (const [provider, value] of Object.entries(rawProviders ?? {})) {
     const parsed = parseProviderDef(value)
     if (parsed === undefined) {
-      warn(`pi-bridge: models.json: skipping provider "${provider}": not a valid provider entry`)
+      warn(`pi-auth-bridge: models.json: skipping provider "${provider}": not a valid provider entry`)
       continue
     }
     providers[provider] = parsed
@@ -269,12 +269,12 @@ export function resolvePiValue(raw: string, options: ResolvePiValueOptions = {})
   if (raw.startsWith('$')) {
     const name = raw.slice(1)
     if (name.length === 0) {
-      warn('pi-bridge: empty "$" value reference cannot be resolved')
+      warn('pi-auth-bridge: empty "$" value reference cannot be resolved')
       return undefined
     }
     const value = env[name]
     if (value === undefined || value.length === 0) {
-      warn(`pi-bridge: environment variable "${name}" is not set; the referencing provider is skipped`)
+      warn(`pi-auth-bridge: environment variable "${name}" is not set; the referencing provider is skipped`)
       return undefined
     }
     return value
@@ -282,7 +282,7 @@ export function resolvePiValue(raw: string, options: ResolvePiValueOptions = {})
   if (raw.startsWith('!')) {
     const command = raw.slice(1).trim()
     if (command.length === 0) {
-      warn('pi-bridge: empty "!" command value cannot be resolved')
+      warn('pi-auth-bridge: empty "!" command value cannot be resolved')
       return undefined
     }
     const cache = options.cache
@@ -291,11 +291,11 @@ export function resolvePiValue(raw: string, options: ResolvePiValueOptions = {})
     try {
       value = execCmd(command, timeoutMs).trim()
       if (value.length === 0) {
-        warn(`pi-bridge: command for a credential value produced empty output: ${command}`)
+        warn(`pi-auth-bridge: command for a credential value produced empty output: ${command}`)
         value = undefined
       }
     } catch (error) {
-      warn(`pi-bridge: command for a credential value failed: ${command}: ${(error as Error).message}`)
+      warn(`pi-auth-bridge: command for a credential value failed: ${command}: ${(error as Error).message}`)
       value = undefined
     }
     cache?.set(command, value)
