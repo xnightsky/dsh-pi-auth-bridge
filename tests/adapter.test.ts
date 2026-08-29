@@ -17,7 +17,9 @@ import {
   type Message as DshMessage,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import { PiBridgeAdapter, toPiContext, type PiModelsLike } from '../src/adapter.js'
+import { PiBridgeAdapter } from '../src/adapter.js'
+import { buildPiModels, type PiModelsLike } from '../src/provider.js'
+import { toPiContext } from '../src/request.js'
 import type { RouteDef } from '../src/convert.js'
 
 /* ------------------------------------------------------------------ */
@@ -264,10 +266,10 @@ describe('PiBridgeAdapter option validation', () => {
     await expect(collect(adapter.stream(genOptions({ model: 'nope' })))).rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
   })
 
-  it('rejects an unsupported reasoning effort', async () => {
+  it('rejects an unsupported reasoning effort with UNSUPPORTED_OPTION', async () => {
     const { adapter } = makeAdapter([])
     const options: GenerateOptions = { ...genOptions(), reasoningEffort: 'high' as GenerateOptions['reasoningEffort'] & string }
-    await expect(collect(adapter.stream(options))).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    await expect(collect(adapter.stream(options))).rejects.toMatchObject({ code: 'UNSUPPORTED_OPTION' })
   })
 
   it('honors the caller signal: abort mid-stream throws LlmError ABORTED', async () => {
@@ -314,6 +316,32 @@ describe('PiBridgeAdapter request plumbing', () => {
     expect(captured?.context.messages).toEqual([{ role: 'user', content: 'hello', timestamp: 0 }])
   })
 
+  it('sends the api key as Authorization: Bearer when the route sets authHeader', async () => {
+    const { adapter, fake } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      { authHeader: true },
+    )
+    await collect(adapter.stream(genOptions()))
+    expect(fake.captured?.options?.apiKey).toBeUndefined()
+    expect(fake.captured?.options?.headers?.['Authorization']).toBe('Bearer sk-test')
+  })
+
+  it('warns once at construction when a custom header collides with harness attribution', async () => {
+    const warnings: string[] = []
+    const fake = new FakeModels([fakeModel()], () => eventsOf([{ type: 'done', reason: 'stop', message: piAssistant() }]))
+    const colliding = Object.keys(attributionHeaders())[0]
+    if (colliding === undefined) throw new Error('attributionHeaders() returned no headers')
+    const adapter = new PiBridgeAdapter(
+      [fakeRoute({ headers: { [colliding]: 'user-value', 'x-team': 'blue' } })],
+      fake,
+      { warn: (message) => warnings.push(message) },
+    )
+    expect(warnings.join('\n')).toContain(colliding)
+    await collect(adapter.stream(genOptions()))
+    expect(fake.captured?.options?.headers?.[colliding]).toBe(attributionHeaders()[colliding])
+    expect(fake.captured?.options?.headers?.['x-team']).toBe('blue')
+  })
+
   it('converts assistant tool-calls and tool results into pi-ai history', () => {
     const context = toPiContext(genOptions({
       messages: [
@@ -347,6 +375,31 @@ describe('PiBridgeAdapter request plumbing', () => {
     expect(context.messages).toEqual([{ role: 'user', content: 'context snapshot', timestamp: 0 }])
   })
 })
+
+/* ------------------------------------------------------------------ */
+/* buildPiModels                                                       */
+/* ------------------------------------------------------------------ */
+
+describe('buildPiModels', () => {
+  it('skips a custom provider holding only an expired OAuth credential, with a warn', () => {
+    const warnings: string[] = []
+    // exactOptionalPropertyTypes 下不能显式传 apiKey: undefined，用解构剔除默认 key
+    const { apiKey: _defaultKey, ...keyless } = fakeRoute({
+      route: 'acme-custom',
+      providerId: 'acme-custom',
+      kind: 'custom',
+      oauth: { access: 'old-acc', refresh: 'ref-token', expires: 1 },
+      api: 'openai-completions',
+      baseURL: 'https://acme.example/v1',
+      models: [{ id: 'acme-large' }],
+    })
+    const built = buildPiModels([keyless], { warn: (message) => warnings.push(message) })
+    expect(built.served).toEqual([])
+    expect(warnings.join('\n')).toContain('acme-custom')
+    expect(warnings.join('\n')).toContain('OAuth')
+  })
+})
+
 
 /* ------------------------------------------------------------------ */
 /* Catalog surface                                                     */

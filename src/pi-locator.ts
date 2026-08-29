@@ -1,14 +1,13 @@
 /**
- * Cross-platform location of the pi (Pi coding agent) configuration directory.
+ * 跨平台定位 pi（Pi coding agent）配置目录。
  *
- * Resolution priority: explicit `piDir` > `$PI_CODING_AGENT_DIR` >
- * `homedir()/.pi/agent` (`%USERPROFILE%\.pi\agent` on Windows — `os.homedir()`
- * is naturally cross-platform). A candidate directory only counts when it
- * holds at least one of `auth.json` / `models.json`.
+ * 解析优先级：显式 `piDir` > `$PI_CODING_AGENT_DIR` >
+ * `homedir()/.pi/agent`（Windows 上为 `%USERPROFILE%\.pi\agent` ——
+ * `os.homedir()` 天然跨平台）。候选目录只有在至少持有 `auth.json` /
+ * `models.json` 之一时才算有效。
  *
- * Every environment touchpoint (env vars, homedir, filesystem existence, path
- * joining) is injectable so the win32 and posix path logic can be unit-tested
- * on either platform without touching the real machine.
+ * 每个环境接触点（环境变量、homedir、文件系统存在性、路径拼接）都可注入，
+ * 因此 win32 与 posix 的路径逻辑可以在任一平台上单元测试，无需触碰真实机器。
  *
  * @module dsh-pi-bridge/pi-locator
  */
@@ -17,29 +16,29 @@ import { homedir as osHomedir } from 'node:os'
 import { join } from 'node:path'
 
 export interface LocatePiDirOptions {
-  /** Explicit override; wins over every other source. Empty means absent. */
+  /** 显式覆盖；优先于其他所有来源。空字符串视为缺省。 */
   piDir?: string
-  /** Environment to read `PI_CODING_AGENT_DIR` from. Defaults to `process.env`. */
+  /** 读取 `PI_CODING_AGENT_DIR` 所用的环境。默认 `process.env`。 */
   env?: NodeJS.ProcessEnv
-  /** Home directory source. Defaults to `os.homedir`. */
+  /** 主目录来源。默认 `os.homedir`。 */
   homedir?: () => string
-  /** Existence probe. Defaults to `fs.existsSync`. */
+  /** 存在性探测。默认 `fs.existsSync`。 */
   exists?: (path: string) => boolean
-  /** Path joiner. Defaults to `path.join`; pass `path.win32.join` to exercise Windows stitching. */
+  /** 路径拼接器。默认 `path.join`；传入 `path.win32.join` 可演练 Windows 拼接。 */
   joinPath?: (...parts: string[]) => string
 }
 
-/** A non-empty string, or undefined. */
+/** 非空字符串，否则为 undefined。 */
 function present(value: string | undefined): string | undefined {
   return value !== undefined && value.trim().length > 0 ? value : undefined
 }
 
 /**
- * Locate the pi configuration directory.
+ * 定位 pi 配置目录。
  *
- * @returns the directory when it exists and holds `auth.json` or `models.json`;
- *   `undefined` when pi is not installed (or holds neither file) — callers
- *   must treat that as "mount empty", never as an error.
+ * @returns 目录存在且持有 `auth.json` 或 `models.json` 时返回该目录；
+ *   pi 未安装（或两者都不存在）时返回 `undefined` —— 调用方必须将其
+ *   视为「空挂载」，绝不可视为错误。
  */
 export function locatePiDir(options: LocatePiDirOptions = {}): string | undefined {
   const env = options.env ?? process.env

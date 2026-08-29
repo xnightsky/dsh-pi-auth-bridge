@@ -1,17 +1,14 @@
 /**
- * pi-bridge: a dsh plugin that bridges the local pi (Pi coding agent)
- * installation's auth (`auth.json` + `models.json`) into dsh LLM routes.
+ * pi-bridge：一个 dsh 插件，把本机 pi（Pi coding agent）安装的认证信息
+ * （`auth.json` + `models.json`）桥接为 dsh 的 LLM 路由。
  *
- * Zero configuration, in-memory only: credentials are read from pi's files at
- * mount time and never written anywhere — not to the dsh credential store,
- * not back to `~/.pi`, not to any temporary file. When pi is not installed
- * (or yields no servable route) the plugin mounts empty with a warning
- * instead of failing the composition.
+ * 零配置、仅存于内存：凭据在挂载时从 pi 的文件读取，绝不写到任何地方
+ * —— 不写 dsh 凭据存储、不回写 `~/.pi`、不写任何临时文件。当 pi 未安装
+ * （或没有任何可提供的路由）时，插件以警告空挂载，而不是让组合失败。
  *
- * Follows the official dsh plugin (bundle) convention: exports
- * `name` / `inject: ['llm']` / `Config` / `apply`, and the package declares
- * `dsh.bundle.patch` → root `cordis.patch.yml`. It can also be inserted by
- * absolute path into any cordis layer for development:
+ * 遵循官方 dsh 插件（bundle）约定：导出 `name` / `inject: ['llm']` /
+ * `Config` / `apply`，并在包中声明 `dsh.bundle.patch` → 根目录
+ * `cordis.patch.yml`。开发时也可以按绝对路径插入任意 cordis 层：
  *
  * ```yaml
  * # cordis.yml
@@ -33,8 +30,11 @@ export { PiBridgeError, createValueResolver, readPiAuth, readPiModels, resolvePi
 export type { PiAuthEntry, PiModelDef, PiModelsFile, PiProviderDef } from './pi-auth.js'
 export { buildRoutes } from './convert.js'
 export type { RouteDef } from './convert.js'
-export { buildPiModels, mapStopReason, mapUsage, PiBridgeAdapter, toPiContext, toStreamChunks } from './adapter.js'
-export type { BuiltPiModels, PiModelsLike } from './adapter.js'
+export { buildPiModels } from './provider.js'
+export type { BuiltPiModels, PiModelsLike } from './provider.js'
+export { toPiContext } from './request.js'
+export { mapStopReason, mapUsage, toStreamChunks } from './stream.js'
+export { PiBridgeAdapter } from './adapter.js'
 
 export const name = 'pi-bridge'
 
@@ -45,17 +45,17 @@ export const name = 'pi-bridge'
  */
 export const inject = ['llm']
 
-/** pi-bridge plugin configuration. */
+/** pi-bridge 插件配置。 */
 export interface Config {
-  /** Override the pi configuration directory (default: `$PI_CODING_AGENT_DIR` or `~/.pi/agent`). */
+  /** 覆盖 pi 配置目录（默认 `$PI_CODING_AGENT_DIR` 或 `~/.pi/agent`）。 */
   piDir?: string
-  /** Provider whitelist; empty/absent bridges every provider found. */
+  /** provider 白名单；留空/缺省表示桥接找到的每个 provider。 */
   providers?: string[]
-  /** Route name prefix to avoid collisions with other adapters. */
+  /** 路由名前缀，用于避免与其他适配器冲突。 */
   prefix?: string
-  /** Whether OAuth credentials are bridged. */
+  /** 是否桥接 OAuth 凭据。 */
   includeOAuth?: boolean
-  /** Timeout for `!command` credential resolution, in milliseconds. */
+  /** `!command` 凭据解析的超时时间（毫秒）。 */
   commandTimeoutMs?: number
 }
 
@@ -67,7 +67,7 @@ export const Config: z<Config> = z.object({
   commandTimeoutMs: z.number().default(10000).description('!command 取值命令的超时时间（毫秒）'),
 })
 
-/** Mount the bridge: locate → read → convert → register. Never throws for a missing pi. */
+/** 挂载桥接器：定位 → 读取 → 转换 → 注册。pi 缺失时绝不抛错。 */
 export function apply(ctx: Context, config: Config): void {
   const logger = ctx.logger(name)
   const warn: Warn = (message) => logger.warn(message)
@@ -90,7 +90,7 @@ export function apply(ctx: Context, config: Config): void {
     auth = readPiAuth(dir, { warn })
     models = readPiModels(dir, { warn })
   } catch (error) {
-    // A corrupt pi file disables the bridge, never the composition.
+    // 损坏的 pi 文件只会禁用桥接器，绝不影响组合。
     warn(`pi-bridge: cannot load pi configuration: ${(error as Error).message}; plugin mounted with no routes`)
     return
   }

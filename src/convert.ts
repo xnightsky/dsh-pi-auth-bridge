@@ -1,68 +1,67 @@
 /**
- * Pure conversion from pi's `auth.json` + `models.json` into route
- * definitions the adapter can serve. No pi-ai import and no I/O beyond the
- * injected value resolver, so the whole mapping is unit-testable.
+ * 将 pi 的 `auth.json` + `models.json` 纯转换为适配器可提供的路由定义。
+ * 不 import pi-ai，除注入的取值解析器外无任何 I/O，整个映射可单元测试。
  *
  * @module dsh-pi-bridge/convert
  */
 import type { PiAuthEntry, PiModelDef, PiModelsFile, PiValueResolver, Warn } from './pi-auth.js'
 
-/** One provider route the bridge can register with the dsh LLM seam. */
+/** 桥接器可向 dsh LLM 接缝注册的一条 provider 路由。 */
 export interface RouteDef {
-  /** Route name registered with `ctx.llm.registerAdapter` (prefix applied). */
+  /** 注册到 `ctx.llm.registerAdapter` 的路由名（已加前缀）。 */
   route: string
-  /** Original pi provider id (used for pi-ai catalog lookup). */
+  /** pi 原始 provider id（用于 pi-ai 目录查询）。 */
   providerId: string
-  /** `builtin`: metadata comes from pi-ai's installed catalog; `custom`: declared by `models.json`. */
+  /** `builtin`：元数据来自 pi-ai 内置目录；`custom`：由 `models.json` 声明。 */
   kind: 'builtin' | 'custom'
-  /** Human-readable provider name. */
+  /** 人类可读的 provider 名称。 */
   displayName: string
-  /** Resolved api key, when the route authenticates with one. In memory only. */
+  /** 解析后的 api key（当该路由以 key 鉴权时）。仅存于内存。 */
   apiKey?: string
   /**
-   * OAuth credential handed to pi-ai's in-memory credential store so its own
-   * refresh mechanism can rotate an expired token. Never written back anywhere.
+   * 交给 pi-ai 内存凭据存储的 OAuth 凭据，使其自身的刷新机制可以轮换过期
+   * token。绝不回写到任何地方。
    */
   oauth?: { access: string; refresh: string; expires?: number }
-  /** Wire protocol for custom providers (`openai-completions`, ...). */
+  /** 自定义 provider 的线协议（`openai-completions` 等）。 */
   api?: string
-  /** Endpoint override for custom providers. */
+  /** 自定义 provider 的端点覆盖。 */
   baseURL?: string
-  /** Extra request headers (values already resolved). */
+  /** 额外请求头（值已解析）。 */
   headers?: Record<string, string>
-  /** pi's `authHeader` flag: send the key as an `Authorization: Bearer` header. */
+  /** pi 的 `authHeader` 标志：以 `Authorization: Bearer` 头发送 key。 */
   authHeader?: boolean
-  /** Custom model declarations; empty means "use the pi-ai catalog". */
+  /** 自定义模型声明；为空表示「使用 pi-ai 目录」。 */
   models: PiModelDef[]
 }
 
 export interface BuildRoutesOptions {
-  /** Whitelist of pi provider ids; absent means "every provider found". */
+  /** pi provider id 白名单；缺省表示「找到的每个 provider」。 */
   providers?: readonly string[]
-  /** Route name prefix to avoid collisions with other adapters. */
+  /** 路由名前缀，用于避免与其他适配器冲突。 */
   prefix?: string
-  /** Whether OAuth entries are bridged at all. Default true. */
+  /** 是否桥接 OAuth 条目。默认 true。 */
   includeOAuth?: boolean
-  /** Resolver for `$ENV` / `!cmd` / literal values. */
+  /** `$ENV` / `!cmd` / 字面量值的解析器。 */
   resolve: PiValueResolver
-  /** Warn sink. */
+  /** warn 输出槽。 */
   warn: Warn
-  /** Current time in epoch ms (injectable for tests). */
+  /** 当前时间（epoch 毫秒，可注入以便测试）。 */
   now?: number
 }
 
-/** Resolve a possibly-templated value; failures already warned inside the resolver. */
+/** 解析一个可能含模板的值；失败时解析器内部已发出 warn。 */
 function resolved(resolve: PiValueResolver, raw: string | undefined): string | undefined {
   return raw === undefined ? undefined : resolve(raw)
 }
 
 /**
- * Build the route set from pi's configuration.
+ * 从 pi 的配置构建路由集合。
  *
- * Credential precedence per provider: `auth.json` same-name entry >
- * `models.json` `apiKey` field. OAuth entries bridge the unexpired access
- * token as a plain api key; an expired entry with a refresh token is handed
- * to pi-ai's own (in-memory) refresh; anything else is skipped with a warn.
+ * 每个 provider 的凭据优先级：`auth.json` 同名条目 >
+ * `models.json` 的 `apiKey` 字段。OAuth 条目：未过期的 access token 直接
+ * 当作普通 api key 桥接；已过期但带 refresh token 的交给 pi-ai 自身
+ * （内存中）刷新；其余情况发出 warn 并跳过。
  */
 export function buildRoutes(
   auth: Record<string, PiAuthEntry> | undefined,
@@ -99,10 +98,10 @@ export function buildRoutes(
       } else {
         const expired = entry.expires !== undefined && entry.expires <= now
         if (!expired) {
-          // Unexpired access token: usable as a plain bearer key.
+          // 未过期的 access token：可直接当作普通 bearer key 使用。
           apiKey = entry.access
         } else if (entry.refresh !== undefined && entry.refresh.length > 0) {
-          // Expired but refreshable: pi-ai refreshes in memory; nothing is written back.
+          // 已过期但可刷新：pi-ai 在内存中刷新；不回写任何内容。
           oauth = {
             access: entry.access,
             refresh: entry.refresh,
@@ -124,12 +123,12 @@ export function buildRoutes(
 
     if (apiKey === undefined && oauth === undefined) {
       if (custom === undefined) {
-        // An auth.json-only provider whose credential did not resolve is unserviceable.
+        // 仅在 auth.json 中出现且凭据无法解析的 provider 无法提供服务。
         warn(`pi-bridge: provider "${providerId}": no usable credential; provider skipped`)
         continue
       }
-      // A models.json provider without any key may still be a keyless local endpoint;
-      // keep it and let the wire protocol decide.
+      // 没有任何 key 的 models.json provider 仍可能是无需密钥的本地端点；
+      // 保留它，交给线协议自行决定。
     }
 
     let headers: Record<string, string> | undefined

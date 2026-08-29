@@ -1,9 +1,9 @@
 /**
- * Read-side model of pi's `auth.json` / `models.json`, plus pi's three-state
- * value resolution (literal / `$ENV_VAR` / `!shell command`).
+ * pi 的 `auth.json` / `models.json` 的读取侧模型，以及 pi 的三态取值解析
+ * （字面量 / `$ENV_VAR` / `!shell command`）。
  *
- * Everything here is READ-ONLY with respect to the pi directory: no file is
- * ever created, modified, or deleted. Resolved secrets stay in memory.
+ * 本模块对 pi 目录的一切操作都是只读的：绝不创建、修改或删除任何文件。
+ * 解析出的机密只存在于内存中。
  *
  * @module dsh-pi-bridge/pi-auth
  */
@@ -11,12 +11,12 @@ import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** One entry of pi's `auth.json`. */
+/** pi 的 `auth.json` 中的一条条目。 */
 export type PiAuthEntry =
   | { type: 'api_key'; key: string }
   | { type: 'oauth'; access: string; refresh?: string; expires?: number }
 
-/** One model entry of a `models.json` provider. */
+/** `models.json` 中某 provider 的一条模型条目。 */
 export interface PiModelDef {
   id: string
   name?: string
@@ -26,7 +26,7 @@ export interface PiModelDef {
   cost?: { input: number; output: number; cacheRead: number; cacheWrite: number }
 }
 
-/** One provider entry of pi's `models.json`. */
+/** pi 的 `models.json` 中的一个 provider 条目。 */
 export interface PiProviderDef {
   baseUrl?: string
   api?: string
@@ -37,12 +37,12 @@ export interface PiProviderDef {
   models?: PiModelDef[]
 }
 
-/** Parsed `models.json` (only the parts this bridge consumes). */
+/** 解析后的 `models.json`（仅包含本桥接器消费的部分）。 */
 export interface PiModelsFile {
   providers: Record<string, PiProviderDef>
 }
 
-/** Failure reading or parsing a pi configuration file; always names the file. */
+/** 读取或解析 pi 配置文件失败的错误；始终指明文件名。 */
 export class PiBridgeError extends Error {
   readonly path: string
   constructor(path: string, message: string, options?: ErrorOptions) {
@@ -52,7 +52,7 @@ export class PiBridgeError extends Error {
   }
 }
 
-/** Warn sink used across the bridge; defaults stay injectable for tests. */
+/** 桥接器各处共用的 warn 输出槽；默认值保持可注入以便测试。 */
 export type Warn = (message: string) => void
 
 const NO_WARN: Warn = () => {}
@@ -76,7 +76,7 @@ function optionalBoolean(record: Record<string, unknown>, key: string): boolean 
   return typeof value === 'boolean' ? value : undefined
 }
 
-/** Validate one `auth.json` entry; returns undefined for an illegal shape. */
+/** 校验一条 `auth.json` 条目；形状非法时返回 undefined。 */
 function parseAuthEntry(value: unknown): PiAuthEntry | undefined {
   if (!isRecord(value)) return undefined
   if (value['type'] === 'api_key') {
@@ -98,7 +98,7 @@ function parseAuthEntry(value: unknown): PiAuthEntry | undefined {
   return undefined
 }
 
-/** Validate one `models.json` model entry; returns undefined for an illegal shape. */
+/** 校验一条 `models.json` 模型条目；形状非法时返回 undefined。 */
 function parseModelDef(value: unknown): PiModelDef | undefined {
   if (!isRecord(value)) return undefined
   const id = optionalString(value, 'id')
@@ -130,7 +130,7 @@ function parseModelDef(value: unknown): PiModelDef | undefined {
   }
 }
 
-/** Validate one `models.json` provider entry; returns undefined for an illegal shape. */
+/** 校验一条 `models.json` provider 条目；形状非法时返回 undefined。 */
 function parseProviderDef(value: unknown): PiProviderDef | undefined {
   if (!isRecord(value)) return undefined
   const baseUrl = optionalString(value, 'baseUrl')
@@ -157,7 +157,7 @@ function parseProviderDef(value: unknown): PiProviderDef | undefined {
   }
 }
 
-/** Read and parse one JSON file; undefined when absent, PiBridgeError when corrupt. */
+/** 读取并解析一个 JSON 文件；文件不存在返回 undefined，损坏时抛 PiBridgeError。 */
 function readJsonFile(path: string): unknown {
   let text: string
   try {
@@ -174,14 +174,14 @@ function readJsonFile(path: string): unknown {
 }
 
 export interface ReadPiOptions {
-  /** Illegal per-entry shapes are skipped through this sink, never fatal. */
+  /** 单条条目形状非法时经此输出槽跳过，绝不致命。 */
   warn?: Warn
 }
 
 /**
- * Read pi's `auth.json`. Missing file → `undefined`; corrupt JSON or a
- * non-object top level → {@link PiBridgeError}; individual illegal entries are
- * skipped with a warning so one bad provider never takes down the rest.
+ * 读取 pi 的 `auth.json`。文件缺失 → `undefined`；JSON 损坏或顶层不是
+ * 对象 → {@link PiBridgeError}；单条非法条目发出警告后跳过，一个坏
+ * provider 绝不拖垮其余。
  */
 export function readPiAuth(dir: string, options: ReadPiOptions = {}): Record<string, PiAuthEntry> | undefined {
   const warn = options.warn ?? NO_WARN
@@ -201,7 +201,7 @@ export function readPiAuth(dir: string, options: ReadPiOptions = {}): Record<str
   return auth
 }
 
-/** Read pi's `models.json` with the same missing/corrupt/skip contract as {@link readPiAuth}. */
+/** 读取 pi 的 `models.json`，缺失/损坏/跳过的契约与 {@link readPiAuth} 相同。 */
 export function readPiModels(dir: string, options: ReadPiOptions = {}): PiModelsFile | undefined {
   const warn = options.warn ?? NO_WARN
   const path = join(dir, 'models.json')
@@ -224,25 +224,25 @@ export function readPiModels(dir: string, options: ReadPiOptions = {}): PiModels
   return { providers }
 }
 
-/** How one raw pi value (`apiKey`, header value, `auth.json` key) is resolved. */
+/** 一个 pi 原始值（`apiKey`、请求头值、`auth.json` 的 key）如何被解析。 */
 export interface ResolvePiValueOptions {
-  /** Environment for `$ENV_VAR` lookups. Defaults to `process.env`. */
+  /** `$ENV_VAR` 查找所用的环境。默认 `process.env`。 */
   env?: NodeJS.ProcessEnv
   /**
-   * `!command` runner: executes the command and returns its stdout.
-   * Defaults to `child_process.execSync` with the configured timeout.
-   * Injectable so tests never spawn real processes.
+   * `!command` 执行器：执行命令并返回其 stdout。
+   * 默认为带配置超时的 `child_process.execSync`。
+   * 可注入，使测试永不真实派生进程。
    */
   execCmd?: (command: string, timeoutMs: number) => string
-  /** Command timeout in milliseconds. Default 10s. */
+  /** 命令超时时间（毫秒）。默认 10 秒。 */
   timeoutMs?: number
-  /** Result cache for `!command` executions (in memory only). */
+  /** `!command` 执行结果的缓存（仅存于内存）。 */
   cache?: Map<string, string | undefined>
-  /** Warn sink for unresolvable values. */
+  /** 无法解析的值的 warn 输出槽。 */
   warn?: Warn
 }
 
-/** Default `!command` runner: shell execution with a timeout, stdout captured. */
+/** 默认的 `!command` 执行器：带超时的 shell 执行，捕获 stdout。 */
 function defaultExecCmd(command: string, timeoutMs: number): string {
   return execSync(command, {
     timeout: timeoutMs,
@@ -253,13 +253,12 @@ function defaultExecCmd(command: string, timeoutMs: number): string {
 }
 
 /**
- * Resolve one pi value following pi's own three-state rule:
- * `"$ENV_VAR"` reads an environment variable, `"!cmd args"` runs a shell
- * command and takes its (trimmed) stdout, anything else is a literal.
+ * 按 pi 自身的三态规则解析一个值：
+ * `"$ENV_VAR"` 读取环境变量，`"!cmd args"` 运行 shell 命令并取其
+ * （去除首尾空白后的）stdout，其余一律视为字面量。
  *
- * Unresolvable values (`$ENV` unset, command failing or timing out) return
- * `undefined` and warn — they never throw, so one broken reference only
- * disables its own provider.
+ * 无法解析的值（`$ENV` 未设置、命令失败或超时）返回 `undefined` 并发出
+ * warn —— 绝不抛错，因此一个坏引用只会禁用它自己的 provider。
  */
 export function resolvePiValue(raw: string, options: ResolvePiValueOptions = {}): string | undefined {
   const env = options.env ?? process.env
@@ -305,12 +304,12 @@ export function resolvePiValue(raw: string, options: ResolvePiValueOptions = {})
   return raw
 }
 
-/** A bound value resolver with its own in-memory `!command` cache. */
+/** 绑定了自身内存 `!command` 缓存的取值解析器。 */
 export type PiValueResolver = (raw: string) => string | undefined
 
 /**
- * Create a resolver closing over one cache, so each `!command` runs at most
- * once per plugin load (in memory; nothing is persisted).
+ * 创建一个闭包持有同一缓存的解析器，使每个 `!command` 在每次插件加载中
+ * 至多执行一次（仅存于内存；不持久化任何内容）。
  */
 export function createValueResolver(options: Omit<ResolvePiValueOptions, 'cache'> = {}): PiValueResolver {
   const cache = new Map<string, string | undefined>()
