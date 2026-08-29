@@ -18,7 +18,7 @@ Converts the local **pi** (pi-mono / Pi coding agent) auth configuration (`auth.
 # Pin a version tag (recommended, reproducible)
 dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git#v0.1.0
 
-# or track the latest master
+# or track the latest main
 dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git
 ```
 

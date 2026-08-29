@@ -40,4 +40,4 @@
 - Commit 使用 Conventional Commits，中文摘要，不添加 AI 小尾巴。
 - 禁止 force push；未经当前会话明确授权，不执行 commit、push 或远程写入（含推送 tag）。
 - 发版：`npm version patch|minor|major` 手动发版，版本真相源 = `package.json` + `v*` tag，禁止手改 version 字段；发版前 `npm run typecheck && npm test && npm run build` 必须全绿。
-- 推送 `v*` tag 后由 `.github/workflows/release.yml` 自动发布 GitHub Release：notes 由 changelogithub 从 Conventional Commits 分组生成（直推 master 无 PR 亦可），并附 `npm pack` 产物；不发布 npm registry。
+- 推送 `v*` tag 后由 `.github/workflows/release.yml` 自动发布 GitHub Release：notes 由 changelogithub 从 Conventional Commits 分组生成（直推 main 无 PR 亦可），并附 `npm pack` 产物；不发布 npm registry。

@@ -18,7 +18,7 @@
 # 指定版本 tag（推荐，可复现）
 dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git#v0.1.0
 
-# 或跟踪最新 master
+# 或跟踪最新 main
 dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git
 ```
 
