@@ -10,10 +10,28 @@ Converts the local **pi** (pi-mono / Pi coding agent) auth configuration (`auth.
 
 ## Installation
 
+### Git versioned install (recommended, no clone)
+
+`dsh plugin add` is essentially a pnpm forwarder, so you can install a specific version straight from a git tag:
+
 ```bash
-cd pi-auth-bridge
+# Pin a version tag (recommended, reproducible)
+dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git#v0.1.0
+
+# or track the latest master
+dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git
+```
+
+Git installs build `dist/` via the package's `prepare` script. pnpm blocks dependency build scripts by default: if the first install is blocked, add the key dsh prints to `allowBuilds` in the profile's `pnpm-workspace.yaml`, then re-run the same command.
+
+### Local install (development)
+
+```bash
+git clone https://github.com/xnightsky/dsh-pi-auth-bridge.git
+cd dsh-pi-auth-bridge
 npm install
 npm run build   # produces dist/ (ESM + .d.ts)
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
 Dependencies: `@earendil-works/pi-ai` (runtime); `@deepseek-ai/cordis` and `@deepseek-ai/dsh-llm` (peers, provided by the dsh composition).
@@ -27,7 +45,7 @@ Dependencies: `@earendil-works/pi-ai` (runtime); `@deepseek-ai/cordis` and `@dee
 This package follows the official dsh plugin convention: the entry point exports `name` / `inject: ['llm']` / `Config` / `apply`, and `package.json` declares `dsh.bundle.patch` pointing at the root `cordis.patch.yml` (zero-config mount by default, id `pi-auth-bridge`). Add it to a profile:
 
 ```bash
-dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # local path or npm package name
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # local path or git URL (see Installation above)
 ```
 
 To override the config, use the same id in the profile-level `cordis.patch.yml`:

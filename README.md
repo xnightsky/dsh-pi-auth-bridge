@@ -10,10 +10,28 @@
 
 ## 安装
 
+### git 版本安装（推荐，免 clone）
+
+`dsh plugin add` 本质是 pnpm 转发，可直接按 git tag 安装指定版本：
+
 ```bash
-cd pi-auth-bridge
+# 指定版本 tag（推荐，可复现）
+dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git#v0.1.0
+
+# 或跟踪最新 master
+dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git
+```
+
+git 安装由包的 `prepare` 脚本自动构建 `dist/`。pnpm 默认拦截依赖的构建脚本：首次安装若被拦截，按 dsh 打印的提示把对应 key 加入 profile 目录下 `pnpm-workspace.yaml` 的 `allowBuilds`，再重跑同一命令即可。
+
+### 本地安装（开发调试）
+
+```bash
+git clone git@github.com:xnightsky/dsh-pi-auth-bridge.git
+cd dsh-pi-auth-bridge
 npm install
 npm run build   # 产出 dist/（ESM + .d.ts）
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
 依赖：`@earendil-works/pi-ai`（运行时）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`（peer，由 dsh 组合提供）。
@@ -27,7 +45,7 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 本包遵循 dsh 插件官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`，`package.json` 声明 `dsh.bundle.patch` 指向根目录的 `cordis.patch.yml`（默认零配置挂载，id 为 `pi-auth-bridge`）。装入 profile：
 
 ```bash
-dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或 npm 包名均可
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或 git URL 均可（git 版本安装见上方「安装」）
 ```
 
 需要改配置时，在 profile 层 `cordis.patch.yml` 用同 id 覆盖：
