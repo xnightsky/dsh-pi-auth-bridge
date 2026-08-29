@@ -125,6 +125,10 @@ npm test            # vitest run，72 个用例
 
 测试全部使用临时目录 fixture 与 mock（注入的 `execCmd`、fake pi-ai 流），不访问真实 `~/.pi`，不访问网络。
 
+## 许可证
+
+[MIT](./LICENSE)
+
 ## English
 
 完整英文版见 [README.en.md](./README.en.md)。

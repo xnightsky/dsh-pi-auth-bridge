@@ -2,6 +2,7 @@
   "name": "dsh-pi-bridge",
   "version": "0.1.0",
   "description": "dsh plugin: bridge local pi (Pi coding agent) auth into dsh LLM routes, in-memory only",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

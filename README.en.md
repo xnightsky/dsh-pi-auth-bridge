@@ -124,3 +124,7 @@ npm test            # vitest run, 72 test cases
 ```
 
 All tests use temp-directory fixtures and mocks (injected `execCmd`, fake pi-ai streams); they never touch the real `~/.pi` and never access the network.
+
+## License
+
+[MIT](./LICENSE)
