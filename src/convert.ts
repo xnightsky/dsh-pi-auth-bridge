@@ -6,15 +6,22 @@
  */
 import type { PiAuthEntry, PiModelDef, PiModelsFile, PiValueResolver, Warn } from './pi-auth.js'
 
+/**
+ * 路由名固定前缀：每条路由都是 `pi/<providerId>`。dsh web 的模型选择器
+ * 只有「分组 → 模型」两级，分组 key 即路由 id 原样——此前缀让 PI 转发
+ * 的模型在 key 层面与 dsh 原生及其他适配器的路由明确分开，不可配置。
+ */
+export const PI_ROUTE_PREFIX = 'pi/'
+
 /** 桥接器可向 dsh LLM 接缝注册的一条 provider 路由。 */
 export interface RouteDef {
-  /** 注册到 `ctx.llm.registerAdapter` 的路由名（已加前缀）。 */
+  /** 注册到 `ctx.llm.registerAdapter` 的路由名（固定 `pi/` 前缀）。 */
   route: string
   /** pi 原始 provider id（用于 pi-ai 目录查询）。 */
   providerId: string
   /** `builtin`：元数据来自 pi-ai 内置目录；`custom`：由 `models.json` 声明。 */
   kind: 'builtin' | 'custom'
-  /** 人类可读的 provider 名称。 */
+  /** 人类可读的 provider 名称，恒以 `Pi · ` 冠名标出出处。 */
   displayName: string
   /** 解析后的 api key（当该路由以 key 鉴权时）。仅存于内存。 */
   apiKey?: string
@@ -38,8 +45,6 @@ export interface RouteDef {
 export interface BuildRoutesOptions {
   /** pi provider id 白名单；缺省表示「找到的每个 provider」。 */
   providers?: readonly string[]
-  /** 路由名前缀，用于避免与其他适配器冲突。 */
-  prefix?: string
   /** 是否桥接 OAuth 条目。默认 true。 */
   includeOAuth?: boolean
   /** `$ENV` / `!cmd` / 字面量值的解析器。 */
@@ -69,7 +74,6 @@ export function buildRoutes(
   options: BuildRoutesOptions,
 ): RouteDef[] {
   const { resolve, warn } = options
-  const prefix = options.prefix ?? ''
   const includeOAuth = options.includeOAuth ?? true
   const now = options.now ?? Date.now()
   const whitelist = options.providers === undefined ? undefined : new Set(options.providers)
@@ -81,8 +85,9 @@ export function buildRoutes(
     if (whitelist !== undefined && !whitelist.has(providerId)) continue
     const custom = models?.providers?.[providerId]
     const entry = auth?.[providerId]
-    const route = `${prefix}${providerId}`
-    const displayName = custom?.name ?? providerId
+    const route = `${PI_ROUTE_PREFIX}${providerId}`
+    // 选择器分组标题只能来自 displayName，恒冠以「Pi · 」标明 PI 出处。
+    const displayName = `Pi · ${custom?.name ?? providerId}`
 
     let apiKey: string | undefined
     let oauth: RouteDef['oauth']

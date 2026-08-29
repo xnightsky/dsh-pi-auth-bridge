@@ -37,7 +37,6 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-bridge   # 本地路径或 npm 
       config:
         # piDir: /custom/pi/agent        # 覆盖 pi 配置目录
         # providers: [anthropic, openai] # 只桥接白名单内的 provider
-        prefix: 'pi/'                     # 路由名前缀，避免与其他适配器冲突
         includeOAuth: true                # 是否桥接 OAuth 凭据
         commandTimeoutMs: 10000           # !cmd 取值命令超时
 ```
@@ -54,7 +53,7 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-bridge   # 本地路径或 npm 
 - insert: [{ id: pi-bridge, name: '/abs/path/pi-bridge/dist/index.js' }]
 ```
 
-挂载后，路由名即 provider id（加前缀），例如 `openai` / `pi/openai`，模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。
+挂载后，路由名固定为 `pi/<providerId>`（如 `pi/openai`），分组标题恒以「Pi · 」冠名（如 `Pi · OpenAI`）——dsh web 的模型选择器只有「分组 → 模型」两级，PI 无法成为真正的三级渠道，出处由路由前缀与分组标题共同表达，与 dsh 原生 provider 一眼可分。模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。
 
 ## 工作原理
 

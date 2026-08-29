@@ -36,6 +36,7 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
   - 遵守 `options.signal`
   - 不支持的 option → 抛 `LlmError(..., 'UNSUPPORTED_OPTION')`，不静默丢弃
 - pi-ai 库：`@earendil-works/pi-ai`@^0.84，导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
+- dsh web 模型选择器的展示结构（2026-08-29 核实全局安装产物）：只有两级「分组 → 模型」。分组 key = provider 路由 id **原样**（不按 `/` 或任何分隔符切分），分组标题 = `LlmProviderInfo.name`；路由 id 仅校验非空，`/` 合法。因此 PI 无法成为真正的三级「渠道」，出处只能编码进路由 id 前缀与分组标题（见 §2.3）。
 
 ## 1. 项目形态
 
@@ -78,7 +79,7 @@ README.md         # 中文为主，附 English 摘要
 - 对每个 `auth.json` 里有凭据的 provider：生成路由（provider 元数据交给 pi-ai 内置目录）
 - 对每个 `models.json` 自定义 provider：生成路由 `{ api, baseURL, models, headers, authHeader }`，apiKey 解析顺序 = auth.json 同名片 > models.json `apiKey` 字段
 - `oauth` 条目：`access` 未过期 → 当 apiKey 用；已过期且有 `refresh` → 交给 pi-ai 的 OAuth 刷新机制（内存态，**不回写**）；都不行的跳过并 warn。注意刷新机制只存在于 pi-ai 目录 provider：自定义 provider 持有过期 OAuth（无 apiKey）时在 adapter 构建期跳过并 warn（见 §2.4），否则会产生一条必然 401 的死路由
-- `opts.providers?: string[]` 白名单过滤；`opts.prefix?: string` 路由名前缀（防空路由冲突）
+- `opts.providers?: string[]` 白名单过滤；路由名**固定** `pi/<providerId>` 前缀（`PI_ROUTE_PREFIX`，不可配——避免与 dsh 原生及其他适配器路由撞名）；`displayName` 恒为 `Pi · <名称>`（custom 用其 `name`，builtin 用 provider id）——dsh web 选择器没有三级「渠道」结构，PI 出处只能由路由 id 前缀与分组标题共同表达（见 §0 末条）
 
 ### 2.4 adapter.ts（组合 provider.ts / request.ts / stream.ts）
 - `class PiBridgeAdapter extends LlmAdapter`：构造时接收冻结的 `RouteDef[]` 与 pi-ai `Models` 集合（`createModels` 构建，凭据经内存 CredentialStore/AuthContext 注入，或在每次 stream 调用以 `apiKey` override 传入——以 pi-ai 实际 API 为准，参照 llm-pi-ai 的做法）
@@ -96,7 +97,6 @@ export const name = 'pi-bridge'
 export const Config = z.object({
   piDir: z.string().optional(),        // 覆盖 pi 配置目录
   providers: z.array(z.string()).optional(), // 白名单
-  prefix: z.string().default(''),      // 路由名前缀
   includeOAuth: z.boolean().default(true),
   commandTimeoutMs: z.number().default(10000),
 })
@@ -108,7 +108,7 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 ## 3. 测试（vitest）
 - locator：显式 piDir / PI_CODING_AGENT_DIR / homedir 回退 / 全部缺失；win32 与 posix 路径样本
 - pi-auth：api_key、oauth（过期/未过期）、文件缺失、坏 JSON、非法条目跳过、`$ENV`/字面量/`!cmd`（mock exec）
-- convert：内置 provider 路由、models.json 自定义 provider 全字段映射、白名单、前缀、apiKey 优先级
+- convert：内置 provider 路由、models.json 自定义 provider 全字段映射、白名单、固定 `pi/` 前缀与 `Pi ·` 冠名、apiKey 优先级
 - adapter：用 pi-ai 的 mock/fake 流验证 chunk 顺序（usage→finish）、tool-call argumentsDelta、signal 中止、UNSUPPORTED_OPTION
 - 全部 `npm test`（或 `npx vitest run`）必须通过
 

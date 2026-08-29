@@ -28,7 +28,7 @@ import { PiBridgeAdapter } from './adapter.js'
 export { locatePiDir } from './pi-locator.js'
 export { PiBridgeError, createValueResolver, readPiAuth, readPiModels, resolvePiValue } from './pi-auth.js'
 export type { PiAuthEntry, PiModelDef, PiModelsFile, PiProviderDef } from './pi-auth.js'
-export { buildRoutes } from './convert.js'
+export { buildRoutes, PI_ROUTE_PREFIX } from './convert.js'
 export type { RouteDef } from './convert.js'
 export { buildPiModels } from './provider.js'
 export type { BuiltPiModels, PiModelsLike } from './provider.js'
@@ -51,8 +51,6 @@ export interface Config {
   piDir?: string
   /** provider 白名单；留空/缺省表示桥接找到的每个 provider。 */
   providers?: string[]
-  /** 路由名前缀，用于避免与其他适配器冲突。 */
-  prefix?: string
   /** 是否桥接 OAuth 凭据。 */
   includeOAuth?: boolean
   /** `!command` 凭据解析的超时时间（毫秒）。 */
@@ -62,7 +60,6 @@ export interface Config {
 export const Config: z<Config> = z.object({
   piDir: z.string().description('覆盖 pi 配置目录（默认 $PI_CODING_AGENT_DIR 或 ~/.pi/agent）'),
   providers: z.array(z.string()).description('要桥接的 provider 白名单；留空表示全部'),
-  prefix: z.string().default('').description('路由名前缀，用于避免与其他适配器的路由冲突'),
   includeOAuth: z.boolean().default(true).description('是否桥接 OAuth 凭据（过期时由 pi-ai 在内存中刷新，绝不回写）'),
   commandTimeoutMs: z.number().default(10000).description('!command 取值命令的超时时间（毫秒）'),
 })
@@ -99,7 +96,6 @@ export function apply(ctx: Context, config: Config): void {
   const whitelist = config.providers !== undefined && config.providers.length > 0 ? config.providers : undefined
   const routes = buildRoutes(auth, models, {
     ...(whitelist === undefined ? {} : { providers: whitelist }),
-    prefix: config.prefix ?? '',
     includeOAuth: config.includeOAuth ?? true,
     resolve,
     warn,

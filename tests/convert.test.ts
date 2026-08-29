@@ -24,10 +24,10 @@ describe('buildRoutes', () => {
     const routes = buildRoutes(auth, undefined, defaults())
     expect(routes).toHaveLength(1)
     expect(routes[0]).toMatchObject({
-      route: 'openai',
+      route: 'pi/openai',
       providerId: 'openai',
       kind: 'builtin',
-      displayName: 'openai',
+      displayName: 'Pi · openai',
       apiKey: 'sk-1',
       models: [],
     })
@@ -50,9 +50,9 @@ describe('buildRoutes', () => {
     const routes = buildRoutes(undefined, models, defaults())
     expect(routes).toHaveLength(1)
     expect(routes[0]).toMatchObject({
-      route: 'acme',
+      route: 'pi/acme',
       kind: 'custom',
-      displayName: 'Acme Gateway',
+      displayName: 'Pi · Acme Gateway',
       apiKey: 'sk-acme',
       api: 'openai-completions',
       baseURL: 'https://acme.example/v1',
@@ -86,7 +86,7 @@ describe('buildRoutes', () => {
   it('bridges an unexpired OAuth access token as an api key', () => {
     const auth: Record<string, PiAuthEntry> = { anthropic: { type: 'oauth', access: 'acc-token', refresh: 'ref', expires: NOW + 60_000 } }
     const routes = buildRoutes(auth, undefined, defaults())
-    expect(routes[0]).toMatchObject({ route: 'anthropic', apiKey: 'acc-token' })
+    expect(routes[0]).toMatchObject({ route: 'pi/anthropic', apiKey: 'acc-token' })
     expect(routes[0]?.oauth).toBeUndefined()
   })
 
@@ -125,14 +125,15 @@ describe('buildRoutes', () => {
       anthropic: { type: 'api_key', key: 'sk-2' },
     }
     const routes = buildRoutes(auth, undefined, defaults({ providers: ['anthropic'] }))
-    expect(routes.map((route) => route.route)).toEqual(['anthropic'])
+    expect(routes.map((route) => route.route)).toEqual(['pi/anthropic'])
   })
 
-  it('applies the route name prefix', () => {
+  it('always names routes with the fixed pi/ prefix and brands the display name with Pi', () => {
     const auth: Record<string, PiAuthEntry> = { openai: { type: 'api_key', key: 'sk-1' } }
-    const routes = buildRoutes(auth, undefined, defaults({ prefix: 'pi/' }))
+    const routes = buildRoutes(auth, undefined, defaults())
     expect(routes[0]?.route).toBe('pi/openai')
     expect(routes[0]?.providerId).toBe('openai')
+    expect(routes[0]?.displayName).toBe('Pi · openai')
   })
 
   it('skips an auth-only provider whose key cannot resolve, with a warn', () => {

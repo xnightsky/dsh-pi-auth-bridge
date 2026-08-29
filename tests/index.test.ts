@@ -61,8 +61,10 @@ describe('plugin metadata', () => {
   it('exposes the plugin name, llm inject declaration, and a validating Config schema', () => {
     expect(name).toBe('pi-bridge')
     expect(inject).toEqual(['llm'])
-    expect(Config({})).toMatchObject({ prefix: '', includeOAuth: true, commandTimeoutMs: 10_000 })
-    expect(Config({ prefix: 'pi/', providers: ['openai'] })).toMatchObject({ prefix: 'pi/', providers: ['openai'] })
+    expect(Config({})).toMatchObject({ includeOAuth: true, commandTimeoutMs: 10_000 })
+    expect(Config({ providers: ['openai'] })).toMatchObject({ providers: ['openai'] })
+    // 旧配置里残留的 prefix 键被容忍（透传忽略），不再影响路由名。
+    expect(Config({ prefix: 'pi/' } as never)).toMatchObject({ includeOAuth: true })
   })
 })
 
@@ -103,14 +105,14 @@ describe('apply', () => {
     writeFileSync(join(dir, 'auth.json'), JSON.stringify({ openai: { type: 'api_key', key: 'sk-live' } }))
     apply(fakeCtx(captured), Config({ piDir: dir }))
     expect(captured.registered).toHaveLength(1)
-    expect(captured.registered[0]?.routes).toEqual(['openai'])
+    expect(captured.registered[0]?.routes).toEqual(['pi/openai'])
     expect(captured.warnings).toHaveLength(0)
     expect(captured.effects.length).toBeGreaterThan(0)
     // The registerAdapter handle is invoked through the fiber effect disposer.
     expect(() => captured.effects.forEach((dispose) => dispose())).not.toThrow()
   })
 
-  it('registers a custom models.json provider with a prefix', () => {
+  it('registers a custom models.json provider under the fixed pi/ route prefix', () => {
     const captured = baseCaptured()
     writeFileSync(join(dir, 'models.json'), JSON.stringify({
       providers: {
@@ -122,7 +124,7 @@ describe('apply', () => {
         },
       },
     }))
-    apply(fakeCtx(captured), Config({ piDir: dir, prefix: 'pi/' }))
+    apply(fakeCtx(captured), Config({ piDir: dir }))
     expect(captured.registered).toHaveLength(1)
     expect(captured.registered[0]?.routes).toEqual(['pi/acme'])
   })
@@ -134,7 +136,7 @@ describe('apply', () => {
       anthropic: { type: 'api_key', key: 'sk-2' },
     }))
     apply(fakeCtx(captured), Config({ piDir: dir, providers: ['anthropic'] }))
-    expect(captured.registered[0]?.routes).toEqual(['anthropic'])
+    expect(captured.registered[0]?.routes).toEqual(['pi/anthropic'])
   })
 
   it('warns and mounts empty when the whitelist matches nothing', () => {
@@ -154,7 +156,7 @@ describe('apply', () => {
       listModels(provider: string): Promise<readonly { id: string }[]>
       stream(options: never): AsyncIterable<StreamChunk>
     }
-    const models = await adapter.listModels('openai')
+    const models = await adapter.listModels('pi/openai')
     expect(models.length).toBeGreaterThan(0)
   })
 })
