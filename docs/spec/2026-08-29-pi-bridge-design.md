@@ -53,7 +53,10 @@ src/
   pi-locator.ts   # 跨平台定位 pi 配置目录
   pi-auth.ts      # auth.json / models.json 类型 + 容错解析 + 取值解析（literal/$ENV/!cmd）
   convert.ts      # pi → 路由定义转换（纯函数，可单测）
-  adapter.ts      # PiBridgeAdapter implements LlmAdapter（包装 pi-ai）
+  provider.ts     # 由 RouteDef 构建 pi-ai Provider/Models（目录复用或 models.json 物化）
+  request.ts      # dsh GenerateOptions → pi-ai Context 的请求转换
+  stream.ts       # pi-ai 事件流 → dsh StreamChunk 的翻译（usage→finish）
+  adapter.ts      # PiBridgeAdapter implements LlmAdapter（组合以上三者）
   index.ts        # cordis 插件入口
 tests/            # vitest
 README.md         # 中文为主，附 English 摘要
@@ -74,13 +77,18 @@ README.md         # 中文为主，附 English 摘要
 - `buildRoutes(auth, models, opts): RouteDef[]`
 - 对每个 `auth.json` 里有凭据的 provider：生成路由（provider 元数据交给 pi-ai 内置目录）
 - 对每个 `models.json` 自定义 provider：生成路由 `{ api, baseURL, models, headers, authHeader }`，apiKey 解析顺序 = auth.json 同名片 > models.json `apiKey` 字段
-- `oauth` 条目：`access` 未过期 → 当 apiKey 用；已过期且有 `refresh` → 交给 pi-ai 的 OAuth 刷新机制（内存态，**不回写**）；都不行的跳过并 warn
+- `oauth` 条目：`access` 未过期 → 当 apiKey 用；已过期且有 `refresh` → 交给 pi-ai 的 OAuth 刷新机制（内存态，**不回写**）；都不行的跳过并 warn。注意刷新机制只存在于 pi-ai 目录 provider：自定义 provider 持有过期 OAuth（无 apiKey）时在 adapter 构建期跳过并 warn（见 §2.4），否则会产生一条必然 401 的死路由
 - `opts.providers?: string[]` 白名单过滤；`opts.prefix?: string` 路由名前缀（防空路由冲突）
 
-### 2.4 adapter.ts
+### 2.4 adapter.ts（组合 provider.ts / request.ts / stream.ts）
 - `class PiBridgeAdapter extends LlmAdapter`：构造时接收冻结的 `RouteDef[]` 与 pi-ai `Models` 集合（`createModels` 构建，凭据经内存 CredentialStore/AuthContext 注入，或在每次 stream 调用以 `apiKey` override 传入——以 pi-ai 实际 API 为准，参照 llm-pi-ai 的做法）
 - 遵守第 0 节全部协议义务；图片附件 v1 不支持 → 遇 image block 抛 `UNSUPPORTED_OPTION`
 - 凭据只存在于内存：不写 dsh 凭据存储、不写任何文件、不调用 `ctx.credentials.set`
+- **attribution 头是 dsh-llm 的强制协议义务**（`attributionHeaders()`，可替换不可抑制）：每次请求合并进 headers；`models.json` 自定义头与之同名（大小写不敏感）时让位，并在构建期 warn，不静默丢弃
+- `models.json` 的 `authHeader: true` 接通：该路由的 apiKey 以 `Authorization: Bearer <key>` 头发送（pi-ai 无 authHeader 概念，由桥自身注入），不再走 pi-ai 的 apiKey override
+- `options.sessionId` 透传给 pi-ai（`SimpleStreamOptions.sessionId`，用于会话亲和）
+- 历史消息中 role 为 `system` 的消息降级拼平为 user 消息（pi-ai Context 只有一个 systemPrompt 槽位，由 `options.system` 占用；降级保持消息顺序）
+- 自定义 provider（不在 pi-ai 目录）只持过期 OAuth 时：构建期跳过并 warn（pi-ai 的 OAuth 刷新机制只存在于目录 provider）
 
 ### 2.5 index.ts
 ```ts
@@ -92,8 +100,9 @@ export const Config = z.object({
   includeOAuth: z.boolean().default(true),
   commandTimeoutMs: z.number().default(10000),
 })
-export function apply(ctx, config) { /* locate→read→convert→registerAdapter；ctx.on('dispose') 反注册 */ }
+export function apply(ctx, config) { /* locate→read→convert→registerAdapter；ctx.effect 清理函数反注册 */ }
 ```
+- cordis 4 没有类型化的 `dispose` 事件；反注册挂在 `ctx.effect` 的清理函数上（fiber 销毁时执行，`registerAdapter` 返回的 disposable 本身也随 fiber 释放）
 - 找不到 pi 目录或无任何可用路由：`apply` 不抛错，打 warn 后空挂载（dsh 组合不应因未装 pi 而崩）
 
 ## 3. 测试（vitest）

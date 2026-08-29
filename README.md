@@ -69,13 +69,14 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiBridgeAdapter → 
    - `models.json` 中的自定义 provider → `{ api, baseURL, models, headers, authHeader }` 全字段映射；
    - apiKey 优先级：`auth.json` 同名条目 > `models.json` 的 `apiKey` 字段；
    - 取值解析与 pi 一致：`"$ENV_VAR"` 读环境变量、`"!cmd args"` 执行 shell 命令取 stdout（默认 10s 超时，内存缓存，每次挂载最多执行一次）、其余为字面量。
-4. **适配**（`adapter.ts`）：`PiBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）。图片附件 v1 不支持：遇 image block 抛 `UNSUPPORTED_OPTION`。
+4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件 v1 不支持：遇 image block 抛 `UNSUPPORTED_OPTION`。
 
 ## OAuth 凭据的处理与限制
 
 - access token **未过期**（或无 `expires`）→ 直接当 bearer key 使用；
 - **已过期但有 refresh token** → 注入 pi-ai 的**内存** `CredentialStore`，由 pi-ai 自己的 OAuth 刷新机制在请求时刷新；刷新出的新 token 只活在内存里，**绝不回写** `auth.json`。注意：刷新能力来自 pi-ai 内置目录中该 provider 自带的 OAuth 定义，因此仅对目录内的 provider（如 anthropic、openai-codex 等）有效；刷新失败时该 provider 的请求会以错误终止，重新在 pi 侧登录即可恢复；
 - 已过期且无 refresh token → 跳过该 provider 并 warn；
+- 自定义 provider（不在 pi-ai 目录内）只持过期 OAuth → 无法刷新，构建期跳过并 warn（不会注册成必然 401 的死路由）；
 - `includeOAuth: false` 可整体关闭 OAuth 桥接。
 
 ## 与 `@deepseek-ai/dsh-llm-pi-ai` 的区别
