@@ -22,7 +22,10 @@ dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bri
 dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git
 ```
 
-Git installs build `dist/` via the package's `prepare` script. pnpm blocks dependency build scripts by default: if the first install is blocked, add the key dsh prints to `allowBuilds` in the profile's `pnpm-workspace.yaml`, then re-run the same command.
+Git installs build `dist/` via the package's `prepare` script. pnpm blocks dependency build scripts by default, so expect two allowlisting rounds (both errors tell you exactly what to do):
+
+1. `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` on first install → add the key dsh prints to `allowBuilds` in the profile's `pnpm-workspace.yaml`, then re-run;
+2. `ERR_PNPM_IGNORED_BUILDS` next (pi-ai's transitive deps `@google/genai` / `protobufjs` ship build scripts) → pnpm has already written placeholder entries into the same file; set them to `true` and re-run once more.
 
 ### Local install (development)
 

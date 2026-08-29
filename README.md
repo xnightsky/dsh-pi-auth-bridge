@@ -22,7 +22,10 @@ dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bri
 dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git
 ```
 
-git 安装由包的 `prepare` 脚本自动构建 `dist/`。pnpm 默认拦截依赖的构建脚本：首次安装若被拦截，按 dsh 打印的提示把对应 key 加入 profile 目录下 `pnpm-workspace.yaml` 的 `allowBuilds`，再重跑同一命令即可。
+git 安装由包的 `prepare` 脚本自动构建 `dist/`。pnpm 默认拦截依赖的构建脚本，需要两轮放行（均有明确报错指引，照做即可）：
+
+1. 首装报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` → 把 dsh 打印的 key 加入 profile 目录下 `pnpm-workspace.yaml` 的 `allowBuilds`，重跑；
+2. 再报 `ERR_PNPM_IGNORED_BUILDS`（pi-ai 的传递依赖 `@google/genai` / `protobufjs` 带构建脚本）→ pnpm 已把占位条目写进同一文件，把值改成 `true` 再重跑一次。
 
 ### 本地安装（开发调试）
 
