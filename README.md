@@ -1,5 +1,7 @@
 # pi-bridge (dsh-pi-bridge)
 
+> **中文** | [English](./README.en.md)
+
 把本机 **pi**（pi-mono / Pi coding agent）的认证配置（`auth.json` + `models.json`）在**内存中**转换为 dsh 的 LLM 路由 —— 即转即用、绝不落地。相当于一座 auth adapter 桥：你在 pi 里登录过的 provider，dsh 直接可用。
 
 - **零配置**：默认读取 `$PI_CODING_AGENT_DIR`，否则 `~/.pi/agent`（Windows 即 `%USERPROFILE%\.pi\agent`）。
@@ -118,13 +120,11 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiBridgeAdapter → 
 ```bash
 npm run typecheck   # tsc --noEmit，严格模式零错误
 npm run build       # tsc -p tsconfig.build.json → dist/
-npm test            # vitest run，69 个用例
+npm test            # vitest run，72 个用例
 ```
 
 测试全部使用临时目录 fixture 与 mock（注入的 `execCmd`、fake pi-ai 流），不访问真实 `~/.pi`，不访问网络。
 
-## English summary
+## English
 
-**pi-bridge** is a dsh (deepseek-harness) plugin that converts the local pi coding agent's auth (`auth.json` + `models.json`) into dsh LLM routes **in memory only** — zero config, read-only, never persisted. It locates pi's config dir (`$PI_CODING_AGENT_DIR` or `~/.pi/agent`, cross-platform), resolves pi's value syntax (`$ENV` / `!cmd` / literal), builds routes (api-key priority: `auth.json` > `models.json`; unexpired OAuth access tokens used as bearer keys; expired ones with refresh tokens delegated to pi-ai's in-memory refresh, never written back), and registers a frozen `LlmAdapter` that honors the full dsh streaming contract (`usage` before `finish`, raw-JSON `argumentsDelta`, `LlmError` with stable codes, `options.signal`, `UNSUPPORTED_OPTION` for unsupported features such as images in v1). Missing pi, corrupt files, or unusable credentials mount empty with a warning instead of throwing. Unlike the official `@deepseek-ai/dsh-llm-pi-ai` (harness-owned credentials, settings seam, login flows), pi-bridge reuses pi's existing login state as-is.
-
-**Disclaimer.** pi-bridge is a read-only local config bridge: it reads pi's existing login state on your machine and forwards it to dsh in memory only — it ships no credentials, bypasses no paywall, and defeats no authentication. Bridging plain API keys carries no terms-of-service risk. Subscription-backed OAuth tokens are different: some vendors restrict them to their official clients (e.g. Anthropic's Consumer Terms of Service limit Free/Pro/Max OAuth tokens to Claude Code and Claude.ai; using them in any third-party tool is a violation, and account bans have been publicly reported). Whether and how you use such tokens through this bridge is **your own decision and your own risk** — review each provider's terms first, or set `includeOAuth: false` to bridge API keys only. This project is not affiliated with or endorsed by pi, Anthropic, OpenAI, DeepSeek, or any other vendor. This is not legal advice.
+完整英文版见 [README.en.md](./README.en.md)。
