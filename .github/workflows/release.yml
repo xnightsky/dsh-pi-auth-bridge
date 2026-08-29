@@ -1,5 +1,6 @@
 # Release 流水线：推送 v* tag 触发
-# 流程：安装依赖 → 类型检查 → 测试 → 构建 → npm pack → 创建 GitHub Release 并附 .tgz 产物
+# 流程：安装依赖 → 类型检查 → 测试 → 构建 → npm pack
+#   → changelogithub 按 Conventional Commits 生成/更新 Release notes → 上传 .tgz 产物
 # 发版约定见 AGENTS.md「Git」一节（npm version 手动发版）
 name: Release
 
@@ -15,7 +16,10 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # changelogithub 需要完整历史与 tag，不能用浅克隆
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -28,8 +32,13 @@ jobs:
       - run: npm run build
       - run: npm pack
 
-      # gh CLI 为 runner 预装，GITHUB_TOKEN 由 Actions 自动注入，无需额外配置 secret
-      - name: Create GitHub Release
+      # 按 Conventional Commits 分组生成 Release notes（无 PR 也可），已存在则更新
+      - name: Generate release notes
+        run: npx changelogithub@14
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload tarball asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ github.ref_name }}" --generate-notes ./*.tgz
+        run: gh release upload "${{ github.ref_name }}" ./*.tgz --clobber
