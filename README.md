@@ -2,7 +2,7 @@
 
 > **中文** | [English](./README.en.md)
 
-把本机 **pi**（pi-mono / Pi coding agent）的认证配置（`auth.json` + `models.json`）在**内存中**转换为 dsh 的 LLM 路由 —— 即转即用、绝不落地。相当于一座 auth adapter 桥：你在 pi 里登录过的 provider，dsh 直接可用。
+把本机 **pi**（pi-mono / Pi coding agent）的认证配置（`auth.json` + `models.json`）在**内存中**转换为 dsh 的 LLM 路由 —— 即转即用、凭据绝不落盘。相当于一座认证适配桥：你在 pi 里登录过的 provider，dsh 直接可用。
 
 - **零配置**：默认读取 `$PI_CODING_AGENT_DIR`，否则 `~/.pi/agent`（Windows 即 `%USERPROFILE%\.pi\agent`）。
 - **只进不出**：凭据全程只存在于进程内存；不写 dsh 凭据存储、不回写 `~/.pi`、不写任何临时文件。
@@ -10,7 +10,7 @@
 
 ## 安装
 
-### git 版本安装（推荐，免 clone）
+### git 安装（推荐，免 clone）
 
 `dsh plugin add` 本质是 pnpm 转发，可直接按 git tag 安装指定版本：
 
@@ -22,10 +22,16 @@ dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bri
 dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git
 ```
 
-git 安装由包的 `prepare` 脚本自动构建 `dist/`。pnpm 默认拦截依赖的构建脚本，需要两轮放行（均有明确报错指引，照做即可）：
+git 安装由包的 `prepare` 脚本自动构建 `dist/`。pnpm 默认拦截依赖的构建脚本，需要两轮放行。注意：**allowlist 写在安装方（profile 目录）的 `pnpm-workspace.yaml` 里，与本仓库无关，全程不需要 clone 本仓库**。`allowBuilds` 是 pnpm 10 原生 key（`true` 等价于加入 `onlyBuiltDependencies`）：
 
-1. 首装报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` → 把 dsh 打印的 key 加入 profile 目录下 `pnpm-workspace.yaml` 的 `allowBuilds`，重跑；
-2. 再报 `ERR_PNPM_IGNORED_BUILDS`（pi-ai 的传递依赖 `@google/genai` / `protobufjs` 带构建脚本）→ pnpm 已把占位条目写进同一文件，把值改成 `true` 再重跑一次。
+1. 首装报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` → 在 `<profile>/pnpm-workspace.yaml` 的 `allowBuilds` 下按包名加一行，重跑：
+
+   ```yaml
+   allowBuilds:
+     dsh-pi-auth-bridge: true
+   ```
+
+2. 再报 `ERR_PNPM_IGNORED_BUILDS`，或仅出现 `Ignored build scripts` 警告（pi-ai 的传递依赖 `@google/genai` / `protobufjs` 带构建脚本）→ 若 pnpm 已把占位条目写进同一文件，把值改成 `true`；没有占位条目就按上面同样的格式手动补一行，再重跑一次。
 
 ### 本地安装（开发调试）
 
@@ -48,8 +54,10 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 本包遵循 dsh 插件官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`，`package.json` 声明 `dsh.bundle.patch` 指向根目录的 `cordis.patch.yml`（默认零配置挂载，id 为 `pi-auth-bridge`）。装入 profile：
 
 ```bash
-dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或 git URL 均可（git 版本安装见上方「安装」）
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或 git URL 均可（git 安装见上方「安装」）
 ```
+
+装入后需**重启 dsh 进程**（Ctrl+C 后重跑 `dsh --profile <name>`）才会出现在模型列表。启动日志出现 `pi-auth-bridge: bridged N route(s) from ...` 即桥接成功；只有 warn 时按提示检查 pi 目录与凭据。
 
 需要改配置时，在 profile 层 `cordis.patch.yml` 用同 id 覆盖：
 
@@ -76,7 +84,7 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或
 - insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/dist/index.js' }]
 ```
 
-挂载后，路由名固定为 `pi/<providerId>`（如 `pi/openai`），分组标题恒以「Pi · 」冠名（如 `Pi · OpenAI`）——dsh web 的模型选择器只有「分组 → 模型」两级，PI 无法成为真正的三级渠道，出处由路由前缀与分组标题共同表达，与 dsh 原生 provider 一眼可分。模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。
+挂载后，路由名固定为 `pi/<providerId>`（如 `pi/openai`），分组标题恒以「Pi · 」开头（如 `Pi · OpenAI`）——dsh web 的模型选择器只有「分组 → 模型」两级，pi 无法成为真正的第三级渠道，出处由路由前缀与分组标题共同表达，与 dsh 原生 provider 一眼可分。模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。
 
 ## 工作原理
 

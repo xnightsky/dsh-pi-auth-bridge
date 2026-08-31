@@ -2,7 +2,7 @@
 
 > [中文](./README.md) | **English**
 
-Converts the local **pi** (pi-mono / Pi coding agent) auth configuration (`auth.json` + `models.json`) into dsh LLM routes **in memory** — ready to use the moment it loads, never persisted. Think of it as an auth adapter bridge: every provider you have logged into in pi is directly usable in dsh.
+Converts the local **pi** (pi-mono / Pi coding agent) auth configuration (`auth.json` + `models.json`) into dsh LLM routes **in memory** — ready to use the moment it loads, credentials never touch disk. Think of it as an auth bridge: every provider you have logged into in pi is directly usable in dsh.
 
 - **Zero config**: reads `$PI_CODING_AGENT_DIR` by default, falling back to `~/.pi/agent` (`%USERPROFILE%\.pi\agent` on Windows).
 - **Read-only, memory-only**: credentials live only in process memory — never written to the dsh credential store, never written back to `~/.pi`, never written to any temp file.
@@ -10,7 +10,7 @@ Converts the local **pi** (pi-mono / Pi coding agent) auth configuration (`auth.
 
 ## Installation
 
-### Git versioned install (recommended, no clone)
+### Git install (recommended, no clone needed)
 
 `dsh plugin add` is essentially a pnpm forwarder, so you can install a specific version straight from a git tag:
 
@@ -22,10 +22,16 @@ dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bri
 dsh plugin --profile <name> add git+https://github.com/xnightsky/dsh-pi-auth-bridge.git
 ```
 
-Git installs build `dist/` via the package's `prepare` script. pnpm blocks dependency build scripts by default, so expect two allowlisting rounds (both errors tell you exactly what to do):
+Git installs build `dist/` via the package's `prepare` script. pnpm blocks dependency build scripts by default, so expect two allowlisting rounds. Note: **the allowlist lives in the consumer's `pnpm-workspace.yaml` (the profile directory), not in this repo — you never need to clone this repository**. `allowBuilds` is a native pnpm 10 key (`true` is equivalent to listing the package under `onlyBuiltDependencies`):
 
-1. `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` on first install → add the key dsh prints to `allowBuilds` in the profile's `pnpm-workspace.yaml`, then re-run;
-2. `ERR_PNPM_IGNORED_BUILDS` next (pi-ai's transitive deps `@google/genai` / `protobufjs` ship build scripts) → pnpm has already written placeholder entries into the same file; set them to `true` and re-run once more.
+1. `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` on first install → add one line under `allowBuilds` in `<profile>/pnpm-workspace.yaml`, then re-run:
+
+   ```yaml
+   allowBuilds:
+     dsh-pi-auth-bridge: true
+   ```
+
+2. `ERR_PNPM_IGNORED_BUILDS` next, or merely an `Ignored build scripts` warning (pi-ai's transitive deps `@google/genai` / `protobufjs` ship build scripts) → if pnpm has written placeholder entries into the same file, flip them to `true`; otherwise add a line manually in the same format, then re-run once more.
 
 ### Local install (development)
 
@@ -50,6 +56,8 @@ This package follows the official dsh plugin convention: the entry point exports
 ```bash
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # local path or git URL (see Installation above)
 ```
+
+**Restart the dsh process** after adding (Ctrl+C, then `dsh --profile <name>` again) — the routes only appear in the model list after a restart. A startup log line `pi-auth-bridge: bridged N route(s) from ...` means the bridge is live; if you only see warnings, follow their hints to check the pi directory and credentials.
 
 To override the config, use the same id in the profile-level `cordis.patch.yml`:
 
@@ -76,7 +84,7 @@ Bypass the bundle mechanism and `insert` directly in any cordis config layer; bo
 - insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/dist/index.js' }]
 ```
 
-Once mounted, route names carry the fixed `pi/<providerId>` prefix (e.g. `pi/openai`), and group titles are always crowned with `Pi · ` (e.g. `Pi · OpenAI`) — the dsh web model picker has only two levels ("group → model"), so PI cannot be a true third-level channel; its origin is expressed jointly by the route prefix and the group title, plainly distinguishable from dsh-native providers. The model catalog comes from the pi-ai built-in catalog or custom declarations in `models.json`.
+Once mounted, route names carry the fixed `pi/<providerId>` prefix (e.g. `pi/openai`), and group titles are always prefixed with `Pi · ` (e.g. `Pi · OpenAI`) — the dsh web model picker has only two levels ("group → model"), so pi cannot be a true third-level channel; its origin is expressed jointly by the route prefix and the group title, plainly distinguishable from dsh-native providers. The model catalog comes from the pi-ai built-in catalog or custom declarations in `models.json`.
 
 ## How it works
 
