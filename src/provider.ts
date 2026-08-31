@@ -158,15 +158,19 @@ function reuseCatalogProvider(catalog: Provider, route: RouteDef, warn: Warn): P
   const catalogModels = catalog.getModels()
   const api = route.api ?? sharedCatalogApi(catalogModels)
   const baseUrl = route.baseURL ?? catalog.baseUrl
+  // 目录模型的 provider 字段是目录 id；provider 注册在路由名下，而 pi-ai
+  // Models 的 requireProvider/凭据查询按 model.provider 查表，必须改写为
+  // 路由名，否则建流时抛 Unknown provider。
+  const routeModels = catalogModels.map((model) => ({ ...model, provider: route.route as Model<Api>['provider'] }))
   const models = route.models.length === 0
-    ? catalogModels
+    ? routeModels
     : materializeModels(
         route,
         route.models,
         {
           ...(api !== undefined ? { api } : {}),
           ...(baseUrl !== undefined ? { baseUrl } : {}),
-          catalog: catalogModels,
+          catalog: routeModels,
         },
         warn,
       )

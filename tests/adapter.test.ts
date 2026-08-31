@@ -17,6 +17,7 @@ import {
   type Message as DshMessage,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
+import { builtinProviders } from '@earendil-works/pi-ai/providers/all'
 import { PiAuthBridgeAdapter } from '../src/adapter.js'
 import { buildPiModels, type PiModelsLike } from '../src/provider.js'
 import { toPiContext } from '../src/request.js'
@@ -397,6 +398,20 @@ describe('buildPiModels', () => {
     expect(built.served).toEqual([])
     expect(warnings.join('\n')).toContain('acme-custom')
     expect(warnings.join('\n')).toContain('OAuth')
+  })
+
+  it('rewrites reused catalog models to the route name (Models auth lookup keys on model.provider)', () => {
+    // 回归：复用目录模型的 provider 字段仍是目录 id（如 kimi-coding），而 provider
+    // 注册在路由名下（pi/kimi-coding）；pi-ai Models.streamSimple 的 requireProvider
+    // 按 model.provider 查表，不改写会在建流时抛 Unknown provider。
+    const catalog = builtinProviders()[0]
+    if (catalog === undefined) throw new Error('pi-ai catalog is empty')
+    const catalogModel = catalog.getModels()[0]
+    if (catalogModel === undefined) throw new Error(`pi-ai catalog provider "${catalog.id}" has no models`)
+    const routeName = `pi/${catalog.id}`
+    const built = buildPiModels([fakeRoute({ route: routeName, providerId: catalog.id, models: [] })])
+    expect(built.served).toEqual([routeName])
+    expect(built.models.getModel(routeName, catalogModel.id)?.provider).toBe(routeName)
   })
 })
 
