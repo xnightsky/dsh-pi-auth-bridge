@@ -35,6 +35,7 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
   - 错误仅两条路径：`stream()` 抛 `LlmError`（带稳定 code），或 `finish {kind:'error'|'aborted'}`
   - 遵守 `options.signal`
   - 不支持的 option → 抛 `LlmError(..., 'UNSUPPORTED_OPTION')`，不静默丢弃
+- **dsh-llm 版本下限 `^0.1.2-rc.1`**（2026-09-09 实证）：0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing(provider, model)`（基类默认返回 `undefined` = 不声明图片计价），dsh-token-meter 在手动压缩等计量路径上无条件调用它；插件若仍按 0.1.1-rc.2 的基类解析，运行时报 `...imageRequestPricing is not a function` 并导致手动压缩失败。本插件不支持图片，直接沿用基类默认。同版本将 `CallId` 改名 `ToolCallId`（无别名），`stream.ts` 已跟随。
 - pi-ai 库：`@earendil-works/pi-ai`@^0.84，导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
 - dsh web 模型选择器的展示结构（2026-08-29 核实全局安装产物）：只有两级「分组 → 模型」。分组 key = provider 路由 id **原样**（不按 `/` 或任何分隔符切分），分组标题 = `LlmProviderInfo.name`；路由 id 仅校验非空，`/` 合法。因此 PI 无法成为真正的三级「渠道」，出处只能编码进路由 id 前缀与分组标题（见 §2.3）。
 - 插件安装机制（2026-08-29 核实 `@deepseek-ai/dsh`@0.1.1-rc.2 全局产物 `lib/plugin-9h8shc4d.js`）：`dsh plugin --profile <name> <args...>` 是 pnpm 转发器，在 profile 目录执行 `pnpm <args...>`，因此 registry 包名 / git URL / tarball / 本地路径均可安装。安装后按真实包名 reconcile：声明了 `dsh.bundle.patch` 的依赖自动加入 `dsh.profile.bundles` 层栈，git/path/tarball 安装与 registry 安装行为一致。git 安装的包靠 `prepare` 脚本在安装时构建，pnpm 默认拦截依赖构建脚本，需把对应 key 加入 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds` 后重跑（dsh 失败时会打印该提示）。pnpm 11 实测两轮拦截：插件 prepare 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`；pi-ai 传递依赖 `@google/genai`/`protobufjs` 的构建脚本报 `ERR_PNPM_IGNORED_BUILDS`，pnpm 会把占位条目写入 `allowBuilds`，改为 `true` 重跑即可（2026-08-29 在 profile `pab-e2e` 端到端验证：git tag 安装成功、`dist/` 由 prepare 构建、bundle 自动入栈）。
@@ -43,7 +44,7 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 
 - 独立 npm 包 `dsh-pi-auth-bridge`，ESM，TypeScript。
 - dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`
-- peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`
+- peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@^0.1.2-rc.1
 - devDependencies: `typescript`, `vitest`, `@types/node`
 - 构建：`tsc` → `dist/`（ESM + .d.ts）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
 - 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `pi-auth-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。

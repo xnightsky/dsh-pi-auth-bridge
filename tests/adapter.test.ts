@@ -445,6 +445,11 @@ describe('PiAuthBridgeAdapter catalog surface', () => {
     await expect(adapter.resolveModel('nope', 'x')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
   })
 
+  it('declares no image request pricing (dsh-llm 0.1.2 adapter surface)', () => {
+    const { adapter } = makeAdapter([])
+    expect(adapter.imageRequestPricing('openai', 'test-model')).toBeUndefined()
+  })
+
   it('surfaces LlmError instances from stream failures', async () => {
     const { adapter } = makeAdapter([])
     try {

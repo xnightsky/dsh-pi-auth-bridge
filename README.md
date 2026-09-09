@@ -43,7 +43,7 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-依赖：`@earendil-works/pi-ai`（运行时）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`（peer，由 dsh 组合提供）。
+依赖：`@earendil-works/pi-ai`（运行时）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@^0.1.2-rc.1（peer，由 dsh 组合提供；0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing`，token meter 计量时无条件调用，本插件沿用基类默认的「不声明图片计价」）。
 
 > Node 版本：pi-ai 0.84.x 声明 `node >= 22.19`；本插件的全部功能在 Node 20 上实测通过（安装时仅有 EBADENGINE 警告），但建议与 dsh 保持一致使用 Node 22+。
 

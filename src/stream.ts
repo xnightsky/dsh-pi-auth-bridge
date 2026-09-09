@@ -12,13 +12,13 @@
  * @module dsh-pi-auth-bridge/stream
  */
 import {
-  CallId,
   CONTEXT_WINDOW_EXCEEDED_CODE,
   EMPTY_RESPONSE_CODE,
   isContextWindowExceededError,
   isQuotaExceededError,
   LlmError,
   QUOTA_EXCEEDED_CODE,
+  ToolCallId,
   type FinishReason,
   type StreamChunk,
   type TokenUsage,
@@ -135,7 +135,7 @@ export async function* toStreamChunks(
         yield {
           type: 'tool-call-delta',
           index: event.contentIndex,
-          id: CallId(known?.id ?? ''),
+          id: ToolCallId(known?.id ?? ''),
           ...(known !== undefined && known.name.length > 0 ? { name: known.name } : {}),
           argumentsDelta: event.delta,
         }
@@ -147,7 +147,7 @@ export async function* toStreamChunks(
           index: event.contentIndex,
           block: {
             type: 'tool-call',
-            id: CallId(event.toolCall.id),
+            id: ToolCallId(event.toolCall.id),
             name: event.toolCall.name,
             arguments: JSON.stringify(event.toolCall.arguments),
           },
