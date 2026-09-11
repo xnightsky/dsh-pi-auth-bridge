@@ -19,11 +19,13 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
+import type { FetchFunction } from '@earendil-works/pi-ai'
 import z from '@deepseek-ai/schemastery'
 import { locatePiDir } from './pi-locator.js'
 import { createValueResolver, readPiAuth, readPiModels, type Warn } from './pi-auth.js'
 import { buildRoutes } from './convert.js'
 import { PiAuthBridgeAdapter } from './adapter.js'
+import { createEnvProxyFetch } from './proxy.js'
 
 export { locatePiDir } from './pi-locator.js'
 export { PiAuthBridgeError, createValueResolver, readPiAuth, readPiModels, resolvePiValue } from './pi-auth.js'
@@ -32,6 +34,7 @@ export { buildRoutes, PI_ROUTE_PREFIX } from './convert.js'
 export type { RouteDef } from './convert.js'
 export { buildPiModels } from './provider.js'
 export type { BuiltPiModels, PiModelsLike } from './provider.js'
+export { createEnvProxyFetch, hasProxyEnv } from './proxy.js'
 export { toPiContext } from './request.js'
 export { mapStopReason, mapUsage, toStreamChunks } from './stream.js'
 export { PiAuthBridgeAdapter } from './adapter.js'
@@ -55,6 +58,12 @@ export interface Config {
   includeOAuth?: boolean
   /** `!command` 凭据解析的超时时间（毫秒）。 */
   commandTimeoutMs?: number
+  /**
+   * 嗅探 `http_proxy`/`https_proxy`/`all_proxy`/`no_proxy` 并向桥接请求注入
+   * 代理 fetch。默认 true；未设代理变量时自然不注入。google 线路不支持自定义
+   * fetch，需以 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）启动 dsh 兜底。
+   */
+  proxy?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -62,7 +71,21 @@ export const Config: z<Config> = z.object({
   providers: z.array(z.string()).description('要桥接的 provider 白名单；留空表示全部'),
   includeOAuth: z.boolean().default(true).description('是否桥接 OAuth 凭据（过期时由 pi-ai 在内存中刷新，绝不回写）'),
   commandTimeoutMs: z.number().default(10000).description('!command 取值命令的超时时间（毫秒）'),
+  proxy: z.boolean().default(true).description('嗅探代理环境变量（http_proxy/https_proxy/all_proxy/no_proxy）并注入代理 fetch；google 线路需 NODE_USE_ENV_PROXY=1 兜底'),
 })
+
+/**
+ * 按配置嗅探代理环境变量：开启（默认）且探测到代理时返回注入式代理 fetch
+ * 并打 info；关闭或未配置代理时返回 undefined（不注入，行为与之前一致）。
+ */
+function resolveProxyFetch(config: Config, info: (message: string) => void): FetchFunction | undefined {
+  if (config.proxy === false) return undefined
+  const proxyFetch = createEnvProxyFetch()
+  if (proxyFetch !== undefined) {
+    info('pi-auth-bridge: proxy environment detected; bridged requests will use the configured proxy (google-* routes excluded; use NODE_USE_ENV_PROXY=1 for those)')
+  }
+  return proxyFetch
+}
 
 /** 挂载桥接器：定位 → 读取 → 转换 → 注册。pi 缺失时绝不抛错。 */
 export function apply(ctx: Context, config: Config): void {
@@ -105,7 +128,12 @@ export function apply(ctx: Context, config: Config): void {
     return
   }
 
-  const adapter = new PiAuthBridgeAdapter(routes, undefined, { warn })
+  const proxyFetch = resolveProxyFetch(config, (message) => logger.info(message))
+
+  const adapter = new PiAuthBridgeAdapter(routes, undefined, {
+    warn,
+    ...(proxyFetch === undefined ? {} : { proxyFetch }),
+  })
   if (adapter.routes.length === 0) {
     warn(`pi-auth-bridge: none of the ${routes.length} candidate route(s) in ${dir} can be served; plugin mounted with no routes`)
     return

@@ -43,7 +43,7 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-依赖：`@earendil-works/pi-ai`（运行时）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@^0.1.2-rc.1（peer，由 dsh 组合提供；0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing`，token meter 计量时无条件调用，本插件沿用基类默认的「不声明图片计价」）。
+依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@^0.1.2-rc.1（peer，由 dsh 组合提供；0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing`，token meter 计量时无条件调用，本插件沿用基类默认的「不声明图片计价」）。
 
 > Node 版本：pi-ai 0.84.x 声明 `node >= 22.19`；本插件的全部功能在 Node 20 上实测通过（安装时仅有 EBADENGINE 警告），但建议与 dsh 保持一致使用 Node 22+。
 
@@ -70,6 +70,7 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或
         # providers: [anthropic, openai] # 只桥接白名单内的 provider
         includeOAuth: true                # 是否桥接 OAuth 凭据
         commandTimeoutMs: 10000           # !cmd 取值命令超时
+        proxy: true                       # 嗅探代理环境变量并注入代理 fetch（见「代理支持」）
 ```
 
 ### 绝对路径直挂（开发调试）
@@ -101,6 +102,15 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
    - 取值解析与 pi 一致：`"$ENV_VAR"` 读环境变量、`"!cmd args"` 执行 shell 命令取 stdout（默认 10s 超时，内存缓存，每次挂载最多执行一次）、其余为字面量。
 4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件 v1 不支持：遇 image block 抛 `UNSUPPORTED_OPTION`。
 
+## 代理支持
+
+pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代理，靠的是 pi CLI 启动时的全局 dispatcher 补丁）。本插件在**不触碰全局状态**的前提下补上这一环：
+
+- **默认开启**（`proxy: true`）：挂载时嗅探 `http_proxy` / `https_proxy` / `all_proxy`（大小写均认）；探测到就用 `undici` 的 `EnvHttpProxyAgent`（与 pi CLI 同款参数）构造代理 fetch，经 `SimpleStreamOptions.fetch` 只注入本桥自己的请求——不动 `globalThis.fetch`，不影响 dsh 其他适配器。`no_proxy` 生效；未设代理变量时不注入，行为与之前完全一致。
+- **关闭**：`proxy: false`。适用于代理变量是留给 git/npm 等工具、而 LLM 端点必须直连的场景（内网镜像、本地端点等）。
+- **google 线路例外**：`google-generative-ai` / `google-vertex` 的 pi-ai adapter 拒绝自定义 fetch，这两条路由不注入（每路由 warn 一次）。如需给它们走代理，以 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）启动 dsh，让 Node 内建 fetch 自己读代理变量——这也是不想依赖 undici 时的全局备选。
+- 启动日志出现 `pi-auth-bridge: proxy environment detected; ...` 即代理注入已生效。
+
 ## OAuth 凭据的处理与限制
 
 - access token **未过期**（或无 `expires`）→ 直接当 bearer key 使用；
@@ -114,7 +124,7 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
 | | dsh-llm-pi-ai（官方） | pi-auth-bridge（本插件） |
 |---|---|---|
 | 凭据来源 | harness 自有凭据存储 / 登录流程（`ctx.credentials`、OAuth 登录） | 复用本机 pi 已有的 `auth.json` 登录态 |
-| 配置 | settings seam，profile 逐字段覆盖目录 | 零配置（仅 5 个可选项） |
+| 配置 | settings seam，profile 逐字段覆盖目录 | 零配置（仅 6 个可选项） |
 | 凭据落盘 | 会写入 harness 凭据存储 | 绝不写任何文件，纯内存 |
 | 重试 | 配合 dsh-llm-retry / retry policy | 无（`maxRetries: 0`） |
 | 图片 | 支持（经 dsh-attachment） | v1 不支持，显式 `UNSUPPORTED_OPTION` |
@@ -149,7 +159,7 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
 ```bash
 npm run typecheck   # tsc --noEmit，严格模式零错误
 npm run build       # tsc -p tsconfig.build.json → dist/
-npm test            # vitest run，72 个用例
+npm test            # vitest run，84 个用例
 ```
 
 测试全部使用临时目录 fixture 与 mock（注入的 `execCmd`、fake pi-ai 流），不访问真实 `~/.pi`，不访问网络。

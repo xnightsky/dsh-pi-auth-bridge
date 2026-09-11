@@ -43,7 +43,7 @@ npm run build   # produces dist/ (ESM + .d.ts)
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-Dependencies: `@earendil-works/pi-ai` (runtime); `@deepseek-ai/cordis` and `@deepseek-ai/dsh-llm`@^0.1.2-rc.1 (peers, provided by the dsh composition; since 0.1.2 `LlmAdapter` adds `imageRequestPricing`, which the token meter calls unconditionally during measurement — this plugin keeps the base-class default of declaring no image pricing).
+Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch); `@deepseek-ai/cordis` and `@deepseek-ai/dsh-llm`@^0.1.2-rc.1 (peers, provided by the dsh composition; since 0.1.2 `LlmAdapter` adds `imageRequestPricing`, which the token meter calls unconditionally during measurement — this plugin keeps the base-class default of declaring no image pricing).
 
 > Node version: pi-ai 0.84.x declares `node >= 22.19`. Every feature of this plugin has been verified on Node 20 (only an EBADENGINE warning at install time), but Node 22+ is recommended to stay in line with dsh.
 
@@ -70,6 +70,7 @@ To override the config, use the same id in the profile-level `cordis.patch.yml`:
         # providers: [anthropic, openai] # bridge only whitelisted providers
         includeOAuth: true                # whether to bridge OAuth credentials
         commandTimeoutMs: 10000           # timeout for !cmd value commands
+        proxy: true                       # sniff proxy env vars and inject a proxy fetch (see "Proxy support")
 ```
 
 ### Direct absolute-path mount (development)
@@ -101,6 +102,15 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
    - value resolution matches pi itself: `"$ENV_VAR"` reads an environment variable, `"!cmd args"` runs a shell command and takes its stdout (10s default timeout, in-memory cache, at most one execution per mount), anything else is a literal.
 4. **Adapt** (`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`): `PiAuthBridgeAdapter extends LlmAdapter`, builds the pi-ai collection with `createModels`, and passes credentials via a per-request `apiKey` override (routes with `authHeader: true` send the key as an `Authorization: Bearer <key>` header instead); honors the dsh adapter contract (`usage` before `finish`, no chunks after `finish`, tool-call `arguments` as a raw JSON string, `argumentsDelta` for streaming, block `index` assigned on first appearance and reused, errors only via `LlmError` or `finish {kind:'error'|'aborted'}`, respects `options.signal`, unsupported options raise `UNSUPPORTED_OPTION`); every request carries the dsh-llm-mandated `attributionHeaders()` attribution headers (colliding custom headers yield, with a build-time warn). Image attachments are not supported in v1: an image block raises `UNSUPPORTED_OPTION`.
 
+## Proxy support
+
+Neither pi-ai nor dsh reads `http_proxy`-style environment variables (pi itself only works behind a proxy because the pi CLI installs a global dispatcher patch at startup). This plugin fills the gap **without touching global state**:
+
+- **On by default** (`proxy: true`): at mount time it sniffs `http_proxy` / `https_proxy` / `all_proxy` (both cases); if found, it builds a proxy fetch with undici's `EnvHttpProxyAgent` (same parameters as the pi CLI) and injects it only into this bridge's own requests via `SimpleStreamOptions.fetch` — `globalThis.fetch` is untouched and other dsh adapters are unaffected. `no_proxy` is honored; with no proxy variables set, nothing is injected and behavior is unchanged.
+- **Off**: `proxy: false` — for setups where the proxy variables exist for git/npm/etc. but LLM endpoints must be reached directly (internal mirrors, local endpoints, etc.).
+- **Google routes are the exception**: the pi-ai adapters for `google-generative-ai` / `google-vertex` reject custom fetch, so those routes get no injection (one warn per route). To proxy them, start dsh with `NODE_USE_ENV_PROXY=1` (Node ≥ 24.5) so Node's built-in fetch reads the proxy variables itself — this is also the global alternative if you prefer not to depend on undici.
+- A startup log line `pi-auth-bridge: proxy environment detected; ...` confirms proxy injection is active.
+
 ## OAuth credential handling and limits
 
 - access token **unexpired** (or no `expires`) → used directly as a bearer key;
@@ -114,7 +124,7 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
 | | dsh-llm-pi-ai (official) | pi-auth-bridge (this plugin) |
 |---|---|---|
 | Credential source | harness-owned credential store / login flows (`ctx.credentials`, OAuth login) | reuses the local pi `auth.json` login state |
-| Configuration | settings seam, per-field profile overrides of the catalog | zero config (only 5 optional knobs) |
+| Configuration | settings seam, per-field profile overrides of the catalog | zero config (only 6 optional knobs) |
 | Credential persistence | writes to the harness credential store | never writes any file, pure memory |
 | Retries | works with dsh-llm-retry / retry policy | none (`maxRetries: 0`) |
 | Images | supported (via dsh-attachment) | not in v1, explicit `UNSUPPORTED_OPTION` |
@@ -149,7 +159,7 @@ In one sentence: the official adapter targets the harness-owned credential/login
 ```bash
 npm run typecheck   # tsc --noEmit, zero errors under strict mode
 npm run build       # tsc -p tsconfig.build.json → dist/
-npm test            # vitest run, 72 test cases
+npm test            # vitest run, 84 test cases
 ```
 
 All tests use temp-directory fixtures and mocks (injected `execCmd`, fake pi-ai streams); they never touch the real `~/.pi` and never access the network.

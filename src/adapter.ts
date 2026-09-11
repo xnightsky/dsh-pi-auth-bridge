@@ -20,6 +20,7 @@
 import {
   getSupportedThinkingLevels,
   type Api,
+  type FetchFunction,
   type Model,
   type ModelThinkingLevel,
   type SimpleStreamOptions,
@@ -78,7 +79,16 @@ function reasoningInfo(model: Model<Api>): Pick<LlmResolvedModelInfo, 'reasoning
 export interface PiAuthBridgeAdapterOptions {
   /** warn 汇（构建期跳过与请求期异常都经它上报）。 */
   warn?: Warn
+  /**
+   * 注入到 `SimpleStreamOptions.fetch` 的代理 fetch（由 proxy.ts 嗅探环境
+   * 变量构造）。`google-generative-ai`/`google-vertex` 线路的 pi-ai adapter
+   * 拒绝自定义 fetch，这两条线路会跳过注入并每路由 warn 一次。
+   */
+  proxyFetch?: FetchFunction
 }
+
+/** 拒绝自定义 fetch 的线路（pi-ai 的 google adapter 会抛错），代理注入按此跳过。 */
+const FETCH_REJECTING_APIS: ReadonlySet<string> = new Set(['google-generative-ai', 'google-vertex'])
 
 /**
  * 本插件注册的冻结路由 pi-ai 适配器。路由与 `Models` 集合在构造时固定——
@@ -90,6 +100,8 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
   private readonly routeMap: ReadonlyMap<string, RouteDef>
   private readonly models: PiModelsLike
   private readonly warn: Warn
+  private readonly proxyFetch: FetchFunction | undefined
+  private readonly proxySkipWarned = new Set<string>()
 
   /**
    * @param routes - 冻结的路由定义（防御性拷贝）。
@@ -99,6 +111,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
   constructor(routes: readonly RouteDef[], models?: PiModelsLike, options: PiAuthBridgeAdapterOptions = {}) {
     super()
     this.warn = options.warn ?? (() => {})
+    this.proxyFetch = options.proxyFetch
     const reserved = new Set(Object.keys(attributionHeaders()).map((name) => name.toLowerCase()))
     const frozen = routes.map((route) => {
       if (route.headers !== undefined) {
@@ -124,6 +137,17 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     const route = this.routeMap.get(provider)
     if (route === undefined) throw new LlmError(`pi-auth-bridge adapter does not own provider "${provider}"`, 'NO_ADAPTER')
     return route
+  }
+
+  /** 该模型可注入时代理 fetch；google 线路拒绝自定义 fetch，跳过并每路由 warn 一次。 */
+  private proxyFetchFor(model: Model<Api>): FetchFunction | undefined {
+    if (this.proxyFetch === undefined) return undefined
+    if (!FETCH_REJECTING_APIS.has(model.api)) return this.proxyFetch
+    if (!this.proxySkipWarned.has(model.provider)) {
+      this.proxySkipWarned.add(model.provider)
+      this.warn(`pi-auth-bridge: route "${model.provider}": api "${model.api}" rejects custom fetch; proxy env vars are not applied to this route (start dsh with NODE_USE_ENV_PROXY=1 to proxy it)`)
+    }
+    return undefined
   }
 
   private modelOf(provider: string, model: string): Model<Api> {
@@ -180,6 +204,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined ? consumer.signal : AbortSignal.any([options.signal, consumer.signal])
+    const proxyFetch = this.proxyFetchFor(model)
     const streamOptions: SimpleStreamOptions = {
       // authHeader 路由的 key 在 Authorization 头里携带，不再走 apiKey override。
       ...(route.apiKey === undefined || route.authHeader === true ? {} : { apiKey: route.apiKey }),
@@ -187,6 +212,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
       ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
       ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
       ...(options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) }),
+      ...(proxyFetch === undefined ? {} : { fetch: proxyFetch }),
       headers: requestHeaders(route),
       signal: upstream,
       maxRetries: 0,

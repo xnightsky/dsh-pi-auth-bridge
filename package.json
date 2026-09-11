@@ -31,7 +31,8 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",
-    "@earendil-works/pi-ai": "^0.84.3"
+    "@earendil-works/pi-ai": "^0.84.3",
+    "undici": "^8.10.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

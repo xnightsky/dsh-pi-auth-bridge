@@ -37,13 +37,15 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
   - 不支持的 option → 抛 `LlmError(..., 'UNSUPPORTED_OPTION')`，不静默丢弃
 - **dsh-llm 版本下限 `^0.1.2-rc.1`**（2026-09-09 实证）：0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing(provider, model)`（基类默认返回 `undefined` = 不声明图片计价），dsh-token-meter 在手动压缩等计量路径上无条件调用它；插件若仍按 0.1.1-rc.2 的基类解析，运行时报 `...imageRequestPricing is not a function` 并导致手动压缩失败。本插件不支持图片，直接沿用基类默认。同版本将 `CallId` 改名 `ToolCallId`（无别名），`stream.ts` 已跟随。
 - pi-ai 库：`@earendil-works/pi-ai`@^0.84，导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
+- **代理嗅探的责任在宿主进程，不在 pi-ai**（2026-09-11 实证）：pi-ai 所有线路直接用 `globalThis.fetch`，全包无 `setGlobalDispatcher`/`ProxyAgent`；Node 全局 fetch 默认不读 `http_proxy` 等变量（`NODE_USE_ENV_PROXY`/`--use-env-proxy` 自 Node 24.5 起存在但默认关闭）；dsh 宿主同样无代理处理。pi 本体能走代理，是因为 pi CLI 启动时 `configureHttpDispatcher()` 用 npm 包 `undici` 的 `EnvHttpProxyAgent({ allowH2: false, proxyTunnel: true, ... })` + `setGlobalDispatcher` + 重装 `globalThis.fetch` 做了进程级补丁。因此桥必须自己补这一环（见 §2.6）。
+- pi-ai 的 `SimpleStreamOptions.fetch`（`FetchFunction = typeof globalThis.fetch`）是自定义 fetch 的注入点，会透传到各线路 adapter；但 `google-generative-ai` 与 `google-vertex` 两条线路的 adapter 显式抛错拒绝自定义 fetch（其请求由 `@google/genai` 内部发出）。
 - dsh web 模型选择器的展示结构（2026-08-29 核实全局安装产物）：只有两级「分组 → 模型」。分组 key = provider 路由 id **原样**（不按 `/` 或任何分隔符切分），分组标题 = `LlmProviderInfo.name`；路由 id 仅校验非空，`/` 合法。因此 PI 无法成为真正的三级「渠道」，出处只能编码进路由 id 前缀与分组标题（见 §2.3）。
 - 插件安装机制（2026-08-29 核实 `@deepseek-ai/dsh`@0.1.1-rc.2 全局产物 `lib/plugin-9h8shc4d.js`）：`dsh plugin --profile <name> <args...>` 是 pnpm 转发器，在 profile 目录执行 `pnpm <args...>`，因此 registry 包名 / git URL / tarball / 本地路径均可安装。安装后按真实包名 reconcile：声明了 `dsh.bundle.patch` 的依赖自动加入 `dsh.profile.bundles` 层栈，git/path/tarball 安装与 registry 安装行为一致。git 安装的包靠 `prepare` 脚本在安装时构建，pnpm 默认拦截依赖构建脚本，需把对应 key 加入 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds` 后重跑（dsh 失败时会打印该提示）。pnpm 11 实测两轮拦截：插件 prepare 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`；pi-ai 传递依赖 `@google/genai`/`protobufjs` 的构建脚本报 `ERR_PNPM_IGNORED_BUILDS`，pnpm 会把占位条目写入 `allowBuilds`，改为 `true` 重跑即可（2026-08-29 在 profile `pab-e2e` 端到端验证：git tag 安装成功、`dist/` 由 prepare 构建、bundle 自动入栈）。
 
 ## 1. 项目形态
 
 - 独立 npm 包 `dsh-pi-auth-bridge`，ESM，TypeScript。
-- dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`
+- dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`, `undici`（§2.5 代理 fetch；对齐 pi CLI 同款）
 - peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@^0.1.2-rc.1
 - devDependencies: `typescript`, `vitest`, `@types/node`
 - 构建：`tsc` → `dist/`（ESM + .d.ts）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
@@ -58,9 +60,10 @@ src/
   pi-auth.ts      # auth.json / models.json 类型 + 容错解析 + 取值解析（literal/$ENV/!cmd）
   convert.ts      # pi → 路由定义转换（纯函数，可单测）
   provider.ts     # 由 RouteDef 构建 pi-ai Provider/Models（目录复用或 models.json 物化）
+  proxy.ts        # 代理环境变量嗅探 + 注入式代理 fetch（EnvHttpProxyAgent）
   request.ts      # dsh GenerateOptions → pi-ai Context 的请求转换
   stream.ts       # pi-ai 事件流 → dsh StreamChunk 的翻译（usage→finish）
-  adapter.ts      # PiAuthBridgeAdapter implements LlmAdapter（组合以上三者）
+  adapter.ts      # PiAuthBridgeAdapter implements LlmAdapter（组合以上四者）
   index.ts        # cordis 插件入口
 tests/            # vitest
 README.md         # 中文为主，附 English 摘要
@@ -93,8 +96,18 @@ README.md         # 中文为主，附 English 摘要
 - `options.sessionId` 透传给 pi-ai（`SimpleStreamOptions.sessionId`，用于会话亲和）
 - 历史消息中 role 为 `system` 的消息降级拼平为 user 消息（pi-ai Context 只有一个 systemPrompt 槽位，由 `options.system` 占用；降级保持消息顺序）
 - 自定义 provider（不在 pi-ai 目录）只持过期 OAuth 时：构建期跳过并 warn（pi-ai 的 OAuth 刷新机制只存在于目录 provider）
+- 代理注入：构造选项 `proxyFetch?: FetchFunction`（由 index.ts 按 §2.5 嗅探构造）；`stream()` 时除 `google-generative-ai`/`google-vertex`（pi-ai 拒绝自定义 fetch）外注入为 `SimpleStreamOptions.fetch`；google 路由每路由 warn 一次提示用 `NODE_USE_ENV_PROXY=1` 兜底
 
-### 2.5 index.ts
+### 2.5 proxy.ts（代理环境变量嗅探与注入式代理 fetch）
+- 问题：dsh 进程不做 pi CLI 的 `configureHttpDispatcher()` 全局补丁，pi-ai 也不读代理变量，桥接出的请求会裸连（见 §0 末两条）。桥必须在**不触碰全局状态**的前提下补上这一环。
+- `hasProxyEnv(env = process.env): boolean`：是否配置了代理。认 `http_proxy`/`https_proxy`/`all_proxy` 及其大写形式；空串视为未设置；仅设 `no_proxy` 不算配置代理。
+- `createEnvProxyFetch(env = process.env): FetchFunction | undefined`：无代理变量 → `undefined`（不注入，行为与之前一致）；否则用 `undici` 的 `EnvHttpProxyAgent` 构造一个带 dispatcher 的 fetch 返回。dispatcher 参数对齐 pi CLI：`allowH2: false, proxyTunnel: true`；代理地址与 `no_proxy` 从传入 env 显式映射（`all_proxy` 作 http/https 的兜底），未显式给出的项由 undici 回落 `process.env`（生产路径传入的即 `process.env`，语义一致）。
+- 与 pi CLI 的关键区别：**绝不** `setGlobalDispatcher` / 重装 `globalThis.fetch`——桥是 dsh 进程内的插件，动全局状态会影响宿主与其他适配器；代理 fetch 只经 `SimpleStreamOptions.fetch` 注入到本桥自己的请求。
+- 开关：`Config.proxy?: boolean`，默认 `true`（自动嗅探）。默认开的理由：插件卖点是零配置即转即用，环境变量已设好就期望被尊重；未设代理变量时嗅探为空、注入不发生，开关自闭合。`proxy: false` 用于「环境变量是给别的工具的，LLM 流量必须直连」的场景（内网镜像、本地端点、代理坏 SSE 等）。不做「显式代理 URL」配置面——环境变量本身就是那个配置面（YAGNI）。
+- google 线路例外：`google-generative-ai`/`google-vertex` 的 pi-ai adapter 拒绝自定义 fetch，adapter 在 `stream()` 时按 `model.api` 跳过注入并对每路由 warn 一次；这两条线路的代理需求由方案 B 兜底。
+- 方案 B（零代码兜底，写进 README）：以 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）启动 dsh，让 Node 内建 fetch 自己读代理变量——覆盖 google 线路，也是不想依赖 undici 场景的全局备选。
+
+### 2.6 index.ts
 ```ts
 export const name = 'pi-auth-bridge'
 export const Config = z.object({
@@ -102,8 +115,9 @@ export const Config = z.object({
   providers: z.array(z.string()).optional(), // 白名单
   includeOAuth: z.boolean().default(true),
   commandTimeoutMs: z.number().default(10000),
+  proxy: z.boolean().default(true),    // 嗅探代理环境变量并注入代理 fetch（§2.5）
 })
-export function apply(ctx, config) { /* locate→read→convert→registerAdapter；ctx.effect 清理函数反注册 */ }
+export function apply(ctx, config) { /* locate→read→convert→registerAdapter；ctx.effect 清理函数反注册；proxy!==false 且嗅探到代理变量时构造代理 fetch 传给 adapter */ }
 ```
 - cordis 4 没有类型化的 `dispose` 事件；反注册挂在 `ctx.effect` 的清理函数上（fiber 销毁时执行，`registerAdapter` 返回的 disposable 本身也随 fiber 释放）
 - 找不到 pi 目录或无任何可用路由：`apply` 不抛错，打 warn 后空挂载（dsh 组合不应因未装 pi 而崩）
@@ -113,6 +127,7 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - pi-auth：api_key、oauth（过期/未过期）、文件缺失、坏 JSON、非法条目跳过、`$ENV`/字面量/`!cmd`（mock exec）
 - convert：内置 provider 路由、models.json 自定义 provider 全字段映射、白名单、固定 `pi/` 前缀与 `Pi ·` 冠名、apiKey 优先级
 - adapter：用 pi-ai 的 mock/fake 流验证 chunk 顺序（usage→finish）、tool-call argumentsDelta、signal 中止、UNSUPPORTED_OPTION
+- proxy：`hasProxyEnv` 各变量族/空串/仅 no_proxy；`createEnvProxyFetch` 无代理返回 undefined、有代理返回函数；adapter 注入：普通线路带上 `fetch`、google 线路跳过且 warn 一次
 - 全部 `npm test`（或 `npx vitest run`）必须通过
 
 ## 4. README 要点（已落实）
@@ -120,3 +135,4 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - 与官方 `@deepseek-ai/dsh-llm-pi-ai` 的区别（那个面向 harness 自有凭据/登录体系；本插件零配置复用 pi 已有登录态，不落地）
 - 安全说明：只读 pi 文件；凭据全程内存；不修改 `~/.pi` 与 `$DSH_HOME` 下任何文件
 - Windows + Linux 支持说明（路径、PI_CODING_AGENT_DIR）
+- 代理说明：默认嗅探 `http_proxy`/`https_proxy`/`all_proxy`/`no_proxy` 并注入代理 fetch；`proxy: false` 关闭；google 线路需 `NODE_USE_ENV_PROXY=1` 启动 dsh 兜底（§2.5 方案 B）
