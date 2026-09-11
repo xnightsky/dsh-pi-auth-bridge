@@ -18,9 +18,9 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all'
-import { PiAuthBridgeAdapter } from '../src/adapter.js'
+import { PiAuthBridgeAdapter, type PiAuthBridgeAdapterOptions } from '../src/adapter.js'
 import { buildPiModels, type PiModelsLike } from '../src/provider.js'
-import { toPiContext } from '../src/request.js'
+import { toPiContext, type ImageAttachmentReader } from '../src/request.js'
 import type { RouteDef } from '../src/convert.js'
 
 /* ------------------------------------------------------------------ */
@@ -132,9 +132,24 @@ function makeAdapter(
   events: AssistantMessageEvent[] | ((options?: SimpleStreamOptions) => AsyncIterable<AssistantMessageEvent>),
   routeOverrides: Partial<RouteDef> = {},
   modelOverrides: Partial<Model<Api>> = {},
+  adapterOptions: PiAuthBridgeAdapterOptions = {},
 ): { adapter: PiAuthBridgeAdapter; fake: FakeModels } {
   const fake = new FakeModels([fakeModel(modelOverrides)], typeof events === 'function' ? events : () => eventsOf(events))
-  return { adapter: new PiAuthBridgeAdapter([fakeRoute(routeOverrides)], fake), fake }
+  return { adapter: new PiAuthBridgeAdapter([fakeRoute(routeOverrides)], fake, adapterOptions), fake }
+}
+
+function imageBlock(attachmentId = 'a1'): ContentBlock {
+  return {
+    type: 'image',
+    attachment: { attachmentId, mediaType: 'image/png', bytes: 3, width: 4, height: 4, name: 'pixel.png' },
+  } as unknown as ContentBlock
+}
+
+function fakeImageReader(): ImageAttachmentReader {
+  return {
+    readImageRequest: (ref) =>
+      Promise.resolve({ data: new Uint8Array([1, 2, 3]), mediaType: ref.mediaType, bytes: 3, width: 4, height: 4 }),
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -249,11 +264,24 @@ describe('PiAuthBridgeAdapter option validation', () => {
     })
   })
 
-  it('rejects image attachments with UNSUPPORTED_OPTION', async () => {
-    const { adapter } = makeAdapter([])
-    const image = { type: 'image', attachment: { attachmentId: 'a1' } } as unknown as ContentBlock
-    await expect(collect(adapter.stream(genOptions({ messages: [dshMessage('user', [image])] })))).rejects.toMatchObject({
-      code: 'UNSUPPORTED_OPTION',
+  it('rejects images for a text-only model with UNSUPPORTED_CONTENT', async () => {
+    const { adapter } = makeAdapter([], {}, {}, { resolveAttachments: () => fakeImageReader() })
+    await expect(collect(adapter.stream(genOptions({ messages: [dshMessage('user', [imageBlock()])] })))).rejects.toMatchObject({
+      code: 'UNSUPPORTED_CONTENT',
+    })
+  })
+
+  it('rejects images without the durable attachment service with UNSUPPORTED_CONTENT', async () => {
+    const { adapter } = makeAdapter([], {}, { input: ['text', 'image'] })
+    await expect(collect(adapter.stream(genOptions({ messages: [dshMessage('user', [imageBlock()])] })))).rejects.toMatchObject({
+      code: 'UNSUPPORTED_CONTENT',
+    })
+  })
+
+  it('rejects images in non-user roles with UNSUPPORTED_CONTENT', async () => {
+    const { adapter } = makeAdapter([], {}, { input: ['text', 'image'] }, { resolveAttachments: () => fakeImageReader() })
+    await expect(collect(adapter.stream(genOptions({ messages: [dshMessage('assistant', [imageBlock()])] })))).rejects.toMatchObject({
+      code: 'UNSUPPORTED_CONTENT',
     })
   })
 
@@ -374,6 +402,54 @@ describe('PiAuthBridgeAdapter request plumbing', () => {
       messages: [dshMessage('system', [{ type: 'text', text: 'context snapshot' }], { kind: 'plugin', plugin: 'test' } as DshMessage['source'])],
     }))
     expect(context.messages).toEqual([{ role: 'user', content: 'context snapshot', timestamp: 0 }])
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Image conversion                                                    */
+/* ------------------------------------------------------------------ */
+
+describe('PiAuthBridgeAdapter image conversion', () => {
+  it('converts a user image into a handle text plus a base64 pi-ai image block', async () => {
+    const { adapter, fake } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      {},
+      { input: ['text', 'image'] },
+      { resolveAttachments: () => fakeImageReader() },
+    )
+    await collect(adapter.stream(genOptions({ messages: [dshMessage('user', [{ type: 'text', text: 'look' }, imageBlock()])] })))
+    const message = fake.captured?.context.messages[0]
+    expect(message?.role).toBe('user')
+    const content = message?.role === 'user' ? message.content : undefined
+    expect(Array.isArray(content)).toBe(true)
+    if (!Array.isArray(content)) return
+    expect(content[0]).toEqual({ type: 'text', text: 'look' })
+    expect(content[1]?.type).toBe('text')
+    expect((content[1] as { text: string }).text).toContain('a1')
+    expect(content[2]).toEqual({ type: 'image', data: Buffer.from([1, 2, 3]).toString('base64'), mimeType: 'image/png' })
+  })
+
+  it('converts an image nested in a tool result', async () => {
+    const { adapter, fake } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      {},
+      { input: ['text', 'image'] },
+      { resolveAttachments: () => fakeImageReader() },
+    )
+    await collect(adapter.stream(genOptions({
+      messages: [
+        dshMessage('assistant', [
+          { type: 'tool-call', id: 'call_1', name: 'read_media', arguments: '{}' } as unknown as ContentBlock,
+        ]),
+        dshMessage('user', [
+          { type: 'tool-result', toolCallId: 'call_1', content: [{ type: 'text', text: '<path>x.png</path>' }, imageBlock()] } as unknown as ContentBlock,
+        ], { kind: 'tool', callId: 'call_1' as never } as DshMessage['source']),
+      ],
+    })))
+    const toolResult = fake.captured?.context.messages[1]
+    expect(toolResult?.role).toBe('toolResult')
+    if (toolResult?.role !== 'toolResult') return
+    expect(toolResult.content.some((block) => block.type === 'image')).toBe(true)
   })
 })
 

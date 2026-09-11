@@ -26,6 +26,7 @@ import { createValueResolver, readPiAuth, readPiModels, type Warn } from './pi-a
 import { buildRoutes } from './convert.js'
 import { PiAuthBridgeAdapter } from './adapter.js'
 import { createEnvProxyFetch } from './proxy.js'
+import type { ImageAttachmentReader } from './request.js'
 
 export { locatePiDir } from './pi-locator.js'
 export { PiAuthBridgeError, createValueResolver, readPiAuth, readPiModels, resolvePiValue } from './pi-auth.js'
@@ -35,7 +36,8 @@ export type { RouteDef } from './convert.js'
 export { buildPiModels } from './provider.js'
 export type { BuiltPiModels, PiModelsLike } from './provider.js'
 export { createEnvProxyFetch, hasProxyEnv } from './proxy.js'
-export { toPiContext } from './request.js'
+export { toPiContext, toPiContextWithImages } from './request.js'
+export type { ImageAttachmentReader, PiImageSupport, RequestImagePolicy, RequestImageVersion } from './request.js'
 export { mapStopReason, mapUsage, toStreamChunks } from './stream.js'
 export { PiAuthBridgeAdapter } from './adapter.js'
 
@@ -133,6 +135,8 @@ export function apply(ctx: Context, config: Config): void {
   const adapter = new PiAuthBridgeAdapter(routes, undefined, {
     warn,
     ...(proxyFetch === undefined ? {} : { proxyFetch }),
+    // dsh 组合的持久附件服务（dsh-attachment 提供）；未挂载时图片请求显式报错。
+    resolveAttachments: () => ctx.get('attachments') as ImageAttachmentReader | undefined,
   })
   if (adapter.routes.length === 0) {
     warn(`pi-auth-bridge: none of the ${routes.length} candidate route(s) in ${dir} can be served; plugin mounted with no routes`)

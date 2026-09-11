@@ -9,6 +9,9 @@
  * - 失败只有两条路径：`stream()` 抛带稳定 code 的 `LlmError`，或终态
  *   `finish { kind: 'error' | 'aborted' }` chunk。
  * - 不支持的 option 抛 `LlmError(..., 'UNSUPPORTED_OPTION')`，不静默丢弃。
+ * - 图片附件经 dsh 持久附件服务（`resolveAttachments`）转换为 pi-ai 的
+ *   base64 image 块；模型不支持图片输入或附件服务缺失时抛
+ *   `LlmError(..., 'UNSUPPORTED_CONTENT')`，不静默丢图。
  * - 遵守 `options.signal`；消费方提前退出会中止上游。
  * - 每次请求都带 `attributionHeaders()` 的 harness 归因头（可替换不可抑制）；
  *   同名自定义头让位，并在构建期 warn。
@@ -27,6 +30,7 @@ import {
 } from '@earendil-works/pi-ai'
 import {
   attributionHeaders,
+  contentHasImage,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
@@ -39,7 +43,7 @@ import {
 import type { Warn } from './pi-auth.js'
 import type { RouteDef } from './convert.js'
 import { buildPiModels, type PiModelsLike } from './provider.js'
-import { containsImage, toPiContext } from './request.js'
+import { toPiContext, toPiContextWithImages, type ImageAttachmentReader } from './request.js'
 import { toStreamChunks } from './stream.js'
 
 /**
@@ -85,6 +89,11 @@ export interface PiAuthBridgeAdapterOptions {
    * 拒绝自定义 fetch，这两条线路会跳过注入并每路由 warn 一次。
    */
   proxyFetch?: FetchFunction
+  /**
+   * 解析 dsh 组合的持久附件服务（`ctx.get('attachments')`）。仅在请求含图片
+   * 时调用；返回 undefined 时图片请求显式抛 `UNSUPPORTED_CONTENT`。
+   */
+  resolveAttachments?: () => ImageAttachmentReader | undefined
 }
 
 /** 拒绝自定义 fetch 的线路（pi-ai 的 google adapter 会抛错），代理注入按此跳过。 */
@@ -101,6 +110,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
   private readonly models: PiModelsLike
   private readonly warn: Warn
   private readonly proxyFetch: FetchFunction | undefined
+  private readonly resolveAttachments: (() => ImageAttachmentReader | undefined) | undefined
   private readonly proxySkipWarned = new Set<string>()
 
   /**
@@ -112,6 +122,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     super()
     this.warn = options.warn ?? (() => {})
     this.proxyFetch = options.proxyFetch
+    this.resolveAttachments = options.resolveAttachments
     const reserved = new Set(Object.keys(attributionHeaders()).map((name) => name.toLowerCase()))
     const frozen = routes.map((route) => {
       if (route.headers !== undefined) {
@@ -197,10 +208,15 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     const model = this.modelOf(options.provider, options.model)
     const effort = resolveReasoningLevel(model, options.reasoningEffort)
     const reasoning = effort === 'off' ? undefined : effort
-    if (options.messages.some((message) => containsImage(message.content))) {
-      throw new LlmError('pi-auth-bridge v1 does not support image attachments', 'UNSUPPORTED_OPTION')
+    const hasImages = options.messages.some((message) => contentHasImage(message.content))
+    if (hasImages && !model.input.includes('image')) {
+      throw new LlmError(`pi-auth-bridge model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
     }
-    const context = toPiContext(options)
+    const attachments = hasImages ? this.resolveAttachments?.() : undefined
+    if (hasImages && attachments === undefined) {
+      throw new LlmError('pi-auth-bridge image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+    }
+    const context = attachments === undefined ? toPiContext(options) : await toPiContextWithImages(options, { attachments })
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined ? consumer.signal : AbortSignal.any([options.signal, consumer.signal])

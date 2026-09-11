@@ -100,7 +100,7 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
    - `models.json` 中的自定义 provider → `{ api, baseURL, models, headers, authHeader }` 全字段映射；
    - apiKey 优先级：`auth.json` 同名条目 > `models.json` 的 `apiKey` 字段；
    - 取值解析与 pi 一致：`"$ENV_VAR"` 读环境变量、`"!cmd args"` 执行 shell 命令取 stdout（默认 10s 超时，内存缓存，每次挂载最多执行一次）、其余为字面量。
-4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件 v1 不支持：遇 image block 抛 `UNSUPPORTED_OPTION`。
+4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件：模型声明 image 输入且 dsh 组合挂了 dsh-attachment 服务时，durable 引用经 `readImageRequest` 投影（默认 2048×2048 / 1 MiB，请求级 20 MiB 预算按 dsh-llm 量化策略卸载最老图片）后以 base64 内联为 pi-ai image 块；模型不支持图片输入、附件服务缺失或非 user 角色带图时显式抛 `UNSUPPORTED_CONTENT`，不静默丢图。
 
 ## 代理支持
 
@@ -127,7 +127,7 @@ pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代�
 | 配置 | settings seam，profile 逐字段覆盖目录 | 零配置（仅 6 个可选项） |
 | 凭据落盘 | 会写入 harness 凭据存储 | 绝不写任何文件，纯内存 |
 | 重试 | 配合 dsh-llm-retry / retry policy | 无（`maxRetries: 0`） |
-| 图片 | 支持（经 dsh-attachment） | v1 不支持，显式 `UNSUPPORTED_OPTION` |
+| 图片 | 支持（经 dsh-attachment） | 支持（同样经 dsh-attachment，策略与官方一致） |
 | 自定义 provider | settings.yaml 声明 | 直接复用 pi 的 `models.json` |
 
 一句话：官方适配器面向 harness 自有凭据/登录体系；本插件把 pi 当作认证来源，只做一次性、只读的桥接。

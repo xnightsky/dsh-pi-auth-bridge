@@ -35,7 +35,8 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
   - 错误仅两条路径：`stream()` 抛 `LlmError`（带稳定 code），或 `finish {kind:'error'|'aborted'}`
   - 遵守 `options.signal`
   - 不支持的 option → 抛 `LlmError(..., 'UNSUPPORTED_OPTION')`，不静默丢弃
-- **dsh-llm 版本下限 `^0.1.2-rc.1`**（2026-09-09 实证）：0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing(provider, model)`（基类默认返回 `undefined` = 不声明图片计价），dsh-token-meter 在手动压缩等计量路径上无条件调用它；插件若仍按 0.1.1-rc.2 的基类解析，运行时报 `...imageRequestPricing is not a function` 并导致手动压缩失败。本插件不支持图片，直接沿用基类默认。同版本将 `CallId` 改名 `ToolCallId`（无别名），`stream.ts` 已跟随。
+- **dsh-llm 版本下限 `^0.1.2-rc.1`**（2026-09-09 实证）：0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing(provider, model)`（基类默认返回 `undefined` = 不声明图片计价），dsh-token-meter 在手动压缩等计量路径上无条件调用它；插件若仍按 0.1.1-rc.2 的基类解析，运行时报 `...imageRequestPricing is not a function` 并导致手动压缩失败。本插件不声明图片计价，直接沿用基类默认。同版本将 `CallId` 改名 `ToolCallId`（无别名），`stream.ts` 已跟随。
+- **图片附件支持**（2026-09-12 实证官方 `dsh-llm-pi-ai`@0.1.2-rc.1 全局产物）：dsh 的 image 块只携带 durable 引用（`attachmentId` + 元数据），字节在 dsh-attachment 服务里；适配器经 `ctx.get('attachments')` 取 `AttachmentStore.readImageRequest(ref, policy, signal)` 生成请求版本（默认投影 2048×2048 像素 / 1 MiB），再内联为 pi-ai 的 `{ type:'image', data: base64, mimeType }` 块，并配 `requestImageHandleText` 句柄文本。dsh-llm 提供全部辅助：`contentHasImage`、`offloadRequestImagesWithPolicy`（请求级 20 MiB base64 预算，按 byteQuantum 从最老图片量化替换为 `offloadedImageText` 占位，两遍：先按估值再按真实版本长度）。pi-ai 只能回放 user 角色的图片（含 toolResult 嵌套），其他角色带图抛 `UNSUPPORTED_CONTENT`；模型 `input` 不含 `'image'` 或附件服务缺失时同样显式抛错。桥不直接依赖 dsh-attachment 包：`ImageAttachmentReader` 是其结构性子集。
 - pi-ai 库：`@earendil-works/pi-ai`@^0.84，导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
 - **代理嗅探的责任在宿主进程，不在 pi-ai**（2026-09-11 实证）：pi-ai 所有线路直接用 `globalThis.fetch`，全包无 `setGlobalDispatcher`/`ProxyAgent`；Node 全局 fetch 默认不读 `http_proxy` 等变量（`NODE_USE_ENV_PROXY`/`--use-env-proxy` 自 Node 24.5 起存在但默认关闭）；dsh 宿主同样无代理处理。pi 本体能走代理，是因为 pi CLI 启动时 `configureHttpDispatcher()` 用 npm 包 `undici` 的 `EnvHttpProxyAgent({ allowH2: false, proxyTunnel: true, ... })` + `setGlobalDispatcher` + 重装 `globalThis.fetch` 做了进程级补丁。因此桥必须自己补这一环（见 §2.6）。
 - pi-ai 的 `SimpleStreamOptions.fetch`（`FetchFunction = typeof globalThis.fetch`）是自定义 fetch 的注入点，会透传到各线路 adapter；但 `google-generative-ai` 与 `google-vertex` 两条线路的 adapter 显式抛错拒绝自定义 fetch（其请求由 `@google/genai` 内部发出）。
@@ -89,7 +90,7 @@ README.md         # 中文为主，附 English 摘要
 
 ### 2.4 adapter.ts（组合 provider.ts / request.ts / stream.ts）
 - `class PiAuthBridgeAdapter extends LlmAdapter`：构造时接收冻结的 `RouteDef[]` 与 pi-ai `Models` 集合（`createModels` 构建，凭据经内存 CredentialStore/AuthContext 注入，或在每次 stream 调用以 `apiKey` override 传入——以 pi-ai 实际 API 为准，参照 llm-pi-ai 的做法）
-- 遵守第 0 节全部协议义务；图片附件 v1 不支持 → 遇 image block 抛 `UNSUPPORTED_OPTION`
+- 遵守第 0 节全部协议义务；图片附件经构造选项 `resolveAttachments`（index.ts 接线 `ctx.get('attachments')`）支持：模型声明 image 输入时按 §0「图片附件支持」转换；模型不支持或服务缺失 → 抛 `UNSUPPORTED_CONTENT`
 - 凭据只存在于内存：不写 dsh 凭据存储、不写任何文件、不调用 `ctx.credentials.set`
 - **attribution 头是 dsh-llm 的强制协议义务**（`attributionHeaders()`，可替换不可抑制）：每次请求合并进 headers；`models.json` 自定义头与之同名（大小写不敏感）时让位，并在构建期 warn，不静默丢弃
 - `models.json` 的 `authHeader: true` 接通：该路由的 apiKey 以 `Authorization: Bearer <key>` 头发送（pi-ai 无 authHeader 概念，由桥自身注入），不再走 pi-ai 的 apiKey override
