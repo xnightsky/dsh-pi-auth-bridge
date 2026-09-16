@@ -143,7 +143,7 @@ function materializeModels(
       provider: route.route as Model<Api>['provider'],
       baseUrl,
       reasoning: def.reasoning ?? base?.reasoning ?? false,
-      input: base ? [...base.input] : ['text'],
+      input: def.input !== undefined ? [...def.input] : base ? [...base.input] : ['text'],
       cost: def.cost ?? base?.cost ?? { ...NO_COST },
       contextWindow: def.contextWindow ?? base?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
       maxTokens: def.maxTokens ?? base?.maxTokens ?? DEFAULT_MAX_TOKENS,

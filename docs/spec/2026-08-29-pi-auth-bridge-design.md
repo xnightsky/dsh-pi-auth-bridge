@@ -16,7 +16,8 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
   - `{ "type": "api_key", "key": "sk-..." }`
   - `{ "type": "oauth", "access": "...", "refresh": "...", "expires": <epochMs> }`
 - `models.json`：`{ "providers": Record<providerId, PiProvider> }`
-  - `PiProvider`: `baseUrl?`, `api?` (`openai-completions` | `anthropic-messages` | `google-generative-ai` | ...), `apiKey?`, `headers?`, `authHeader?`, `name?`, `models?: [{ id, name?, contextWindow?, maxTokens?, reasoning?, cost? }]`
+  - `PiProvider`: `baseUrl?`, `api?` (`openai-completions` | `anthropic-messages` | `google-generative-ai` | ...), `apiKey?`, `headers?`, `authHeader?`, `name?`, `models?: [{ id, name?, contextWindow?, maxTokens?, reasoning?, cost?, input? }]`
+  - 模型条目的 `input?: ('text'|'image')[]` 是输入模态声明，dsh 据此判定图片能力：物化时以 models.json 声明优先，未声明回退 pi-ai 目录同名模型，目录也没有时默认 `['text']`
 - pi 的取值解析（`apiKey`、`headers` 值、`auth.json` 的 `key`）：
   - `"$ENV_VAR"` → 读环境变量
   - `"!cmd args"` → shell 命令，请求时执行取 stdout

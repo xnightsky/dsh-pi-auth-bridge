@@ -476,6 +476,35 @@ describe('buildPiModels', () => {
     expect(warnings.join('\n')).toContain('OAuth')
   })
 
+  it('materializes a custom route model with its declared input modalities', () => {
+    // 回归：models.json 声明的 input（如 ["text","image"]）曾整段被丢弃，
+    // 物化恒为 ['text']，dsh 据此误判模型不支持图片。
+    const route = fakeRoute({
+      route: 'pi/co',
+      providerId: 'co',
+      kind: 'custom',
+      api: 'openai-completions',
+      baseURL: 'https://co.example/v1',
+      models: [{ id: 'deepseek-v4-1-flash', input: ['text', 'image'] }],
+    })
+    const built = buildPiModels([route])
+    expect(built.served).toEqual(['pi/co'])
+    expect(built.models.getModel('pi/co', 'deepseek-v4-1-flash')?.input).toEqual(['text', 'image'])
+  })
+
+  it('defaults a custom route model without an input declaration to text-only', () => {
+    const route = fakeRoute({
+      route: 'pi/co',
+      providerId: 'co',
+      kind: 'custom',
+      api: 'openai-completions',
+      baseURL: 'https://co.example/v1',
+      models: [{ id: 'text-model' }],
+    })
+    const built = buildPiModels([route])
+    expect(built.models.getModel('pi/co', 'text-model')?.input).toEqual(['text'])
+  })
+
   it('rewrites reused catalog models to the route name (Models auth lookup keys on model.provider)', () => {
     // 回归：复用目录模型的 provider 字段仍是目录 id（如 kimi-coding），而 provider
     // 注册在路由名下（pi/kimi-coding）；pi-ai Models.streamSimple 的 requireProvider

@@ -92,7 +92,7 @@ describe('readPiModels', () => {
           name: 'Acme',
           headers: { 'x-team': 'blue', 'x-bad': 7 },
           models: [
-            { id: 'acme-large', name: 'Acme Large', contextWindow: 65536, maxTokens: 4096, reasoning: true, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } },
+            { id: 'acme-large', name: 'Acme Large', contextWindow: 65536, maxTokens: 4096, reasoning: true, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, input: ['text', 'image'] },
             { id: 'acme-small' },
           ],
         },
@@ -107,10 +107,31 @@ describe('readPiModels', () => {
       name: 'Acme',
       headers: { 'x-team': 'blue' },
       models: [
-        { id: 'acme-large', name: 'Acme Large', contextWindow: 65536, maxTokens: 4096, reasoning: true, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } },
+        { id: 'acme-large', name: 'Acme Large', contextWindow: 65536, maxTokens: 4096, reasoning: true, cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, input: ['text', 'image'] },
         { id: 'acme-small' },
       ],
     })
+  })
+
+  it('keeps only valid modalities from a model input declaration', () => {
+    write('models.json', JSON.stringify({
+      providers: {
+        acme: {
+          baseUrl: 'https://acme.example/v1',
+          models: [
+            { id: 'acme-vision', input: ['text', 'image', 'audio', 7] },
+            { id: 'acme-bad', input: 'image' },
+            { id: 'acme-empty', input: ['audio'] },
+          ],
+        },
+      },
+    }))
+    const models = readPiModels(dir)
+    expect(models?.providers['acme']?.models).toEqual([
+      { id: 'acme-vision', input: ['text', 'image'] },
+      { id: 'acme-bad' },
+      { id: 'acme-empty' },
+    ])
   })
 
   it('skips illegal provider entries with a warn', () => {

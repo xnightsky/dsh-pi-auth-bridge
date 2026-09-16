@@ -24,6 +24,8 @@ export interface PiModelDef {
   maxTokens?: number
   reasoning?: boolean
   cost?: { input: number; output: number; cacheRead: number; cacheWrite: number }
+  /** 输入模态声明（`'text'`/`'image'`），dsh 据此判定图片能力。 */
+  input?: ('text' | 'image')[]
 }
 
 /** pi 的 `models.json` 中的一个 provider 条目。 */
@@ -107,6 +109,10 @@ function parseModelDef(value: unknown): PiModelDef | undefined {
   const contextWindow = optionalNumber(value, 'contextWindow')
   const maxTokens = optionalNumber(value, 'maxTokens')
   const reasoning = optionalBoolean(value, 'reasoning')
+  const rawInput = value['input']
+  const input = Array.isArray(rawInput)
+    ? rawInput.filter((item): item is 'text' | 'image' => item === 'text' || item === 'image')
+    : undefined
   const rawCost = value['cost']
   const cost = isRecord(rawCost)
     && typeof rawCost['input'] === 'number'
@@ -126,6 +132,7 @@ function parseModelDef(value: unknown): PiModelDef | undefined {
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     ...(maxTokens !== undefined ? { maxTokens } : {}),
     ...(reasoning !== undefined ? { reasoning } : {}),
+    ...(input !== undefined && input.length > 0 ? { input } : {}),
     ...(cost !== undefined ? { cost } : {}),
   }
 }
