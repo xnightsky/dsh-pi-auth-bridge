@@ -43,7 +43,7 @@ npm run build   # produces dist/ (ESM + .d.ts)
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch); `@deepseek-ai/cordis` and `@deepseek-ai/dsh-llm`@^0.1.2-rc.1 (peers, provided by the dsh composition; since 0.1.2 `LlmAdapter` adds `imageRequestPricing`, which the token meter calls unconditionally during measurement — this plugin keeps the base-class default of declaring no image pricing).
+Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch); `@deepseek-ai/cordis` and `@deepseek-ai/dsh-llm`@`^0.1.2-rc.1 || ^0.1.5-rc.1` (peers, provided by the dsh composition; since 0.1.2 `LlmAdapter` adds `imageRequestPricing`, which the token meter calls unconditionally during measurement — this plugin keeps the base-class default of declaring no image pricing).
 
 > Node version: pi-ai 0.84.x declares `node >= 22.19`. Every feature of this plugin has been verified on Node 20 (only an EBADENGINE warning at install time), but Node 22+ is recommended to stay in line with dsh.
 
