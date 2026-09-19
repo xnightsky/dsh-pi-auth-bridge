@@ -639,3 +639,4 @@ describe('PiAuthBridgeAdapter catalog surface', () => {
     }
   })
 })
+

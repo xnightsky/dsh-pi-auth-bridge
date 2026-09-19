@@ -7,28 +7,31 @@
  * @module dsh-pi-auth-bridge/typert.remote-client
  */
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
-import type { BridgeStatus } from './status.js'
-import { statusInvocation, TYPERT_PACKAGE } from './typert-common.js'
+import type { BridgeStatus, ProbeRequest, ProbeResult } from './status.js'
+import { probeInvocation, statusInvocation, TYPERT_PACKAGE } from './typert-common.js'
 
 /** `piAuthBridge` 命名空间的类型化方法表。 */
 export interface PiAuthBridgeRemoteNamespace {
   /** 读取当前桥状态快照。 */
   status: () => Promise<RemoteResult<BridgeStatus>>
+  /** 对指定路由的指定模型跑能力探测（用户点击触发的真实 API 调用）。 */
+  probe: (request: ProbeRequest) => Promise<RemoteResult<ProbeResult>>
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteMap {
     'piAuthBridge/status': () => Promise<RemoteResult<BridgeStatus>>
+    'piAuthBridge/probe': (request: ProbeRequest) => Promise<RemoteResult<ProbeResult>>
   }
   interface TypertRemoteNamespaceMap {
     piAuthBridge: PiAuthBridgeRemoteNamespace
   }
 }
 
-/** Client 面 Remote 贡献：仅含本包暴露的 `piAuthBridge/status`。 */
+/** Client 面 Remote 贡献：本包暴露的 `piAuthBridge/status` 与 `piAuthBridge/probe`。 */
 export const TYPERT_REMOTE: TypertRemoteContribution = {
   package: TYPERT_PACKAGE,
-  descriptors: [statusInvocation],
+  descriptors: [statusInvocation, probeInvocation],
 }
 
 export default TYPERT_REMOTE

@@ -3,10 +3,14 @@ import {
   bridgedStatus,
   createStatusBox,
   emptyStatus,
+  mergeProbeReport,
+  modelListOf,
   routeStatusOf,
   type BridgeStatus,
+  type ModelProbeReport,
 } from '../src/status.js'
 import type { RouteDef } from '../src/convert.js'
+import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 
 function route(overrides: Partial<RouteDef> = {}): RouteDef {
   return {
@@ -95,6 +99,35 @@ describe('bridgedStatus', () => {
     expect(status.warnings).toEqual(['pi-auth-bridge: sample warning'])
     expect(JSON.stringify(status)).not.toContain('sk-canary-secret')
   })
+
+  it('echoes the effective config when provided', () => {
+    const status = bridgedStatus({
+      piDir: '/x',
+      routes: [],
+      proxy: { enabled: false, detected: false },
+      warnings: [],
+      config: { providers: ['openai'], includeOAuth: false, commandTimeoutMs: 5000 },
+    })
+    expect(status.config).toEqual({ providers: ['openai'], includeOAuth: false, commandTimeoutMs: 5000 })
+  })
+})
+
+describe('modelListOf', () => {
+  it('maps listed and resolved model info into the panel view', () => {
+    const list = modelListOf(
+      [{ provider: 'pi/openai', id: 'gpt-5', name: 'GPT-5', inputModalities: ['text', 'image'] }],
+      [{ provider: 'pi/openai', id: 'gpt-5', name: 'GPT-5', inputModalities: ['text', 'image'], context: { contextWindow: 400000 } }],
+    )
+    expect(list).toEqual([{ id: 'gpt-5', name: 'GPT-5', contextWindow: 400000, input: ['text', 'image'] }])
+  })
+
+  it('tolerates a missing resolve result (contextWindow omitted)', () => {
+    const list = modelListOf(
+      [{ provider: 'pi/openai', id: 'gpt-5', name: 'GPT-5', inputModalities: ['text'] }],
+      [],
+    )
+    expect(list).toEqual([{ id: 'gpt-5', name: 'GPT-5', input: ['text'] }])
+  })
 })
 
 describe('createStatusBox', () => {
@@ -109,5 +142,51 @@ describe('createStatusBox', () => {
     })
     box.current = next
     expect(box.current.phase).toBe('bridged')
+  })
+})
+
+describe('mergeProbeReport', () => {
+  const full: ModelProbeReport = {
+    route: 'r',
+    model: 'm',
+    at: 1,
+    ok: true,
+    latencyMs: 10,
+    outcomes: [
+      { capability: 'text', verdict: 'ok', latencyMs: 5 },
+      { capability: 'toolCall', verdict: 'inconclusive', latencyMs: 5 },
+    ],
+  }
+
+  it('merges a single-dimension report into the cached one without losing history', () => {
+    const single: ModelProbeReport = {
+      route: 'r',
+      model: 'm',
+      at: 2,
+      ok: false,
+      latencyMs: 3,
+      outcomes: [{ capability: 'text', verdict: 'failed', latencyMs: 3, message: 'timeout' }],
+    }
+    const merged = mergeProbeReport(full, single)
+    expect(merged.outcomes).toHaveLength(2)
+    expect(merged.outcomes.find((outcome) => outcome.capability === 'text')).toMatchObject({ verdict: 'failed' })
+    expect(merged.outcomes.find((outcome) => outcome.capability === 'toolCall')).toMatchObject({ verdict: 'inconclusive' })
+    // ok 按合并后重算；at/latencyMs 取本次。
+    expect(merged.ok).toBe(false)
+    expect(merged.at).toBe(2)
+  })
+
+  it('keeps overall ok when the single-dimension re-test passes', () => {
+    const failed: ModelProbeReport = { ...full, ok: false, outcomes: [{ capability: 'text', verdict: 'failed', latencyMs: 5 }] }
+    const retest: ModelProbeReport = {
+      route: 'r',
+      model: 'm',
+      at: 3,
+      ok: true,
+      latencyMs: 4,
+      outcomes: [{ capability: 'text', verdict: 'ok', latencyMs: 4 }],
+    }
+    const merged = mergeProbeReport(failed, retest)
+    expect(merged.ok).toBe(true)
   })
 })

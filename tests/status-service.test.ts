@@ -39,4 +39,30 @@ describe('PiAuthBridgeStatusService', () => {
     expect(ctx.piAuthBridge.typertRemote).toMatchObject({ serviceKey: 'piAuthBridge', namespace: 'piAuthBridge' })
     await fiber.dispose()
   })
+
+  it('returns not-bridged for probe when the box has no probe handler', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(PiAuthBridgeStatusService, createStatusBox(emptyStatus('llm-missing', 'x')))
+    await expect(ctx.piAuthBridge.probe({ route: 'pi/acme', model: 'acme-large' })).resolves.toMatchObject({
+      ok: false,
+      code: 'not-bridged',
+    })
+    await fiber.dispose()
+  })
+
+  it('delegates probe to the box handler when bridged', async () => {
+    const ctx = new Context()
+    const box = createStatusBox(emptyStatus('llm-missing', 'x'))
+    box.probe = (request) =>
+      Promise.resolve({
+        ok: true,
+        report: { route: request.route, model: request.model, at: 1, ok: true, latencyMs: 3, outcomes: [] },
+      })
+    const fiber = await ctx.plugin(PiAuthBridgeStatusService, box)
+    await expect(ctx.piAuthBridge.probe({ route: 'pi/acme', model: 'acme-large' })).resolves.toMatchObject({
+      ok: true,
+      report: { route: 'pi/acme', model: 'acme-large' },
+    })
+    await fiber.dispose()
+  })
 })

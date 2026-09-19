@@ -23,7 +23,10 @@
  * @module dsh-pi-auth-bridge
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
+import { createRequire } from 'node:module'
+import type { LlmResolvedModelInfo, LlmRuntime } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import type { FetchFunction } from '@earendil-works/pi-ai'
 import z from '@deepseek-ai/schemastery'
 import { locatePiDir } from './pi-locator.js'
@@ -31,8 +34,20 @@ import { createValueResolver, readPiAuth, readPiModels, type Warn } from './pi-a
 import { buildRoutes } from './convert.js'
 import { PiAuthBridgeAdapter } from './adapter.js'
 import { createEnvProxyFetch } from './proxy.js'
-import { bridgedStatus, createStatusBox, emptyStatus } from './status.js'
+import {
+  bridgedStatus,
+  createStatusBox,
+  emptyStatus,
+  modelListOf,
+  recordProbeReport,
+  recordRequestError,
+  type BridgeModelStatus,
+  type BridgeSelfCheck,
+  type BridgeStatusBox,
+  type BridgeVersions,
+} from './status.js'
 import { PiAuthBridgeStatusService } from './status-service.js'
+import { createProbeHandler } from './probe.js'
 import type { ImageAttachmentReader } from './request.js'
 
 export { locatePiDir } from './pi-locator.js'
@@ -118,6 +133,11 @@ export function apply(ctx: Context, config: Config): void {
   const box = createStatusBox(emptyStatus('llm-missing', 'the llm service is not mounted in this composition'))
   ctx.plugin(PiAuthBridgeStatusService, box)
 
+  // 自健康：版本表 + 启动自检（本地契约检查，无网络；§5.7）。
+  const versions = collectVersions()
+  const selfChecks = runSelfChecks(ctx)
+  const health = { versions, selfChecks }
+
   const proxyEnabled = config.proxy !== false
   const proxyFetch = resolveProxyFetch(config, (message) => logger.info(message))
   const proxy = { enabled: proxyEnabled, detected: proxyFetch !== undefined }
@@ -125,14 +145,14 @@ export function apply(ctx: Context, config: Config): void {
   const llm = ctx.llm as LlmRuntime | undefined
   if (llm === undefined) {
     warn('pi-auth-bridge: the llm service is not mounted in this composition; plugin mounted with no routes')
-    box.current = emptyStatus('llm-missing', 'the llm service is not mounted in this composition', { proxy, warnings })
+    box.current = emptyStatus('llm-missing', 'the llm service is not mounted in this composition', { proxy, warnings, ...health })
     return
   }
 
   const dir = locatePiDir(config.piDir === undefined ? {} : { piDir: config.piDir })
   if (dir === undefined) {
     warn('pi-auth-bridge: pi configuration directory not found (looked at $PI_CODING_AGENT_DIR and ~/.pi/agent); plugin mounted with no routes')
-    box.current = emptyStatus('pi-dir-not-found', 'looked at $PI_CODING_AGENT_DIR and ~/.pi/agent', { proxy, warnings })
+    box.current = emptyStatus('pi-dir-not-found', 'looked at $PI_CODING_AGENT_DIR and ~/.pi/agent', { proxy, warnings, ...health })
     return
   }
 
@@ -144,7 +164,7 @@ export function apply(ctx: Context, config: Config): void {
   } catch (error) {
     // 损坏的 pi 文件只会禁用桥接器，绝不影响组合。
     warn(`pi-auth-bridge: cannot load pi configuration: ${(error as Error).message}; plugin mounted with no routes`)
-    box.current = emptyStatus('pi-config-unreadable', (error as Error).message, { piDir: dir, proxy, warnings })
+    box.current = emptyStatus('pi-config-unreadable', (error as Error).message, { piDir: dir, proxy, warnings, ...health })
     return
   }
 
@@ -158,7 +178,7 @@ export function apply(ctx: Context, config: Config): void {
   })
   if (routes.length === 0) {
     warn(`pi-auth-bridge: no usable provider credentials found in ${dir}; plugin mounted with no routes`)
-    box.current = emptyStatus('no-credentials', `no usable provider credentials found in ${dir}`, { piDir: dir, proxy, warnings })
+    box.current = emptyStatus('no-credentials', `no usable provider credentials found in ${dir}`, { piDir: dir, proxy, warnings, ...health })
     return
   }
 
@@ -167,10 +187,12 @@ export function apply(ctx: Context, config: Config): void {
     ...(proxyFetch === undefined ? {} : { proxyFetch }),
     // dsh 组合的持久附件服务（dsh-attachment 提供）；未挂载时图片请求显式报错。
     resolveAttachments: () => ctx.get('attachments') as ImageAttachmentReader | undefined,
+    // 请求期错误进入自健康面板的「近期错误」。
+    recordError: (entry) => recordRequestError(box, entry),
   })
   if (adapter.routes.length === 0) {
     warn(`pi-auth-bridge: none of the ${routes.length} candidate route(s) in ${dir} can be served; plugin mounted with no routes`)
-    box.current = emptyStatus('no-servable-routes', `none of the ${routes.length} candidate route(s) can be served`, { piDir: dir, proxy, warnings })
+    box.current = emptyStatus('no-servable-routes', `none of the ${routes.length} candidate route(s) can be served`, { piDir: dir, proxy, warnings, ...health })
     return
   }
 
@@ -181,6 +203,104 @@ export function apply(ctx: Context, config: Config): void {
     handle()
   }, 'pi-auth-bridge: unregister llm adapter')
   // 快照持有 warnings 的活引用：注册后再产生的警告也会进入面板。
-  box.current = bridgedStatus({ piDir: dir, routes, proxy, warnings })
+  box.current = bridgedStatus({
+    piDir: dir,
+    routes,
+    proxy,
+    warnings,
+    config: {
+      ...(whitelist === undefined ? {} : { providers: [...whitelist] }),
+      includeOAuth: config.includeOAuth ?? true,
+      commandTimeoutMs: config.commandTimeoutMs ?? 10_000,
+    },
+    ...health,
+  })
+  // 能力探测：成功报告缓存进快照（面板重开可见）；探测过程写 host 日志。
+  const probeHandler = createProbeHandler(adapter, logger)
+  box.probe = async (request) => {
+    const result = await probeHandler(request)
+    if (result.ok) recordProbeReport(box, result.report)
+    return result
+  }
+  // 模型清单异步填充（pi-ai 目录为本地读取，无网络）；失败仅 warn。
+  void fillModelLists(adapter, box, warn)
   logger.info(`pi-auth-bridge: bridged ${adapter.routes.length} route(s) from ${dir}: ${adapter.routes.join(', ')}`)
+}
+
+/** 异步填充各路由的模型清单（含 contextWindow）；失败仅 warn，不影响面板其余部分。 */
+async function fillModelLists(adapter: PiAuthBridgeAdapter, box: BridgeStatusBox, warn: Warn): Promise<void> {
+  try {
+    const lists = new Map<string, BridgeModelStatus[]>()
+    for (const route of adapter.routes) {
+      const listed = await adapter.listModels(route)
+      const resolved = (await Promise.all(listed.map((info) => adapter.resolveModel(route, info.id).catch(() => undefined)))).filter(
+        (info): info is LlmResolvedModelInfo => info !== undefined,
+      )
+      lists.set(route, modelListOf(listed, resolved))
+    }
+    const current = box.current
+    if (current.phase !== 'bridged') return
+    box.current = {
+      ...current,
+      routes: current.routes.map((route) => {
+        const modelList = lists.get(route.id)
+        return modelList === undefined ? route : { ...route, modelList }
+      }),
+    }
+  } catch (error) {
+    warn(`pi-auth-bridge: failed to collect model lists for the panel: ${(error as Error).message}`)
+  }
+}
+
+const localRequire = createRequire(import.meta.url)
+
+/** 读依赖包版本；包未导出 ./package.json（如 pi-ai）时降级为缺省（面板显示「未知」）。 */
+function depVersion(spec: string): string | undefined {
+  try {
+    return (localRequire(`${spec}/package.json`) as { version?: unknown }).version as string | undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** 采集关键组件版本表。 */
+function collectVersions(): BridgeVersions {
+  const dshLlm = depVersion('@deepseek-ai/dsh-llm')
+  const dshAttachment = depVersion('@deepseek-ai/dsh-attachment')
+  const piAi = depVersion('@earendil-works/pi-ai')
+  return {
+    plugin: (localRequire('../package.json') as { version: string }).version,
+    ...(dshLlm === undefined ? {} : { dshLlm }),
+    ...(dshAttachment === undefined ? {} : { dshAttachment }),
+    ...(piAi === undefined ? {} : { piAi }),
+  }
+}
+
+/**
+ * 启动自检（本地契约检查，无网络）：逐项回归「升级后桥整个炸掉」的历史
+ * 故障面——dsh-llm 归因头契约、dsh-attachment 0.1.6 的 target 换算契约
+ * （2026-09-19 事故）、图片请求前提（附件服务已挂载）。
+ */
+function runSelfChecks(ctx: Context): BridgeSelfCheck[] {
+  const checks: BridgeSelfCheck[] = []
+  try {
+    const headers = attributionHeaders()
+    checks.push({ id: 'dsh-llm-contract', ok: typeof headers === 'object' && Object.keys(headers).length > 0 })
+  } catch (error) {
+    checks.push({ id: 'dsh-llm-contract', ok: false, message: (error as Error).message })
+  }
+  try {
+    const target = requestImageDimensions(100, 100, 4_194_304)
+    const valid = Number.isInteger(target.width) && target.width > 0 && Number.isInteger(target.height) && target.height > 0
+    checks.push({ id: 'dsh-attachment-contract', ok: valid, ...(valid ? {} : { message: `unexpected target ${JSON.stringify(target)}` }) })
+  } catch (error) {
+    checks.push({ id: 'dsh-attachment-contract', ok: false, message: (error as Error).message })
+  }
+  const attachments = ctx.get('attachments')
+  checks.push({
+    id: 'attachments-service',
+    ok: attachments !== undefined,
+    ...(attachments === undefined ? { message: '附件服务未挂载，带图请求将显式报错' } : {}),
+  })
+  return checks
 }

@@ -10,7 +10,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import type { BridgeStatus, BridgeStatusBox } from './status.js'
+import type { BridgeStatus, BridgeStatusBox, ProbeRequest, ProbeResult } from './status.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -35,5 +35,24 @@ export class PiAuthBridgeStatusService extends TypertRemoteService {
   @Remote('status')
   status(): Promise<BridgeStatus> {
     return Promise.resolve(this.box.current)
+  }
+
+  /**
+   * 对指定路由的指定模型跑能力探测（text/image/reasoning/toolCall）。
+   * 用户点击触发的真实 API 调用；空挂载时返回 `not-bridged` 业务失败。
+   */
+  @Remote('probe')
+  probe(request: ProbeRequest): Promise<ProbeResult> {
+    const handler = this.box.probe
+    if (handler === undefined) {
+      return Promise.resolve({
+        ok: false,
+        route: request.route,
+        model: request.model,
+        code: 'not-bridged',
+        message: 'pi-auth-bridge is mounted empty; no adapter available for probing',
+      })
+    }
+    return handler(request)
   }
 }

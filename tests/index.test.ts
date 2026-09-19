@@ -32,6 +32,8 @@ function fakeCtx(captured: Captured): Context {
       warn: (message: string) => captured.warnings.push(message),
       info: (message: string) => captured.infos.push(message),
     }),
+    // 测试组合不挂附件服务：ctx.get('attachments') 返回 undefined。
+    get: () => undefined,
     ...(captured.llm === undefined
       ? {}
       : {
@@ -191,5 +193,29 @@ describe('apply', () => {
       routes: [{ id: 'pi/openai', provider: 'openai', kind: 'builtin', credential: 'api_key', models: 0 }],
     })
     expect(JSON.stringify(status)).not.toContain('sk-status-canary')
+  })
+
+  it('attaches versions, startup self-checks and a config echo to the bridged snapshot', () => {
+    const captured = baseCaptured()
+    writeFileSync(join(dir, 'auth.json'), JSON.stringify({ openai: { type: 'api_key', key: 'sk-x' } }))
+    apply(fakeCtx(captured), Config({ piDir: dir, providers: ['openai'], includeOAuth: false, commandTimeoutMs: 5000 }))
+    const status = captured.statusBox?.current
+    expect(status?.versions?.plugin).toMatch(/^\d+\.\d+\.\d+/)
+    expect(status?.versions?.dshLlm).toBeDefined()
+    const checks = Object.fromEntries((status?.selfChecks ?? []).map((check) => [check.id, check]))
+    expect(checks['dsh-llm-contract']?.ok).toBe(true)
+    expect(checks['dsh-attachment-contract']?.ok).toBe(true)
+    // 测试组合不挂附件服务。
+    expect(checks['attachments-service']?.ok).toBe(false)
+    expect(status?.config).toEqual({ providers: ['openai'], includeOAuth: false, commandTimeoutMs: 5000 })
+  })
+
+  it('wires the probe handler on bridged mount and reports business failures for unknown routes', async () => {
+    const captured = baseCaptured()
+    writeFileSync(join(dir, 'auth.json'), JSON.stringify({ openai: { type: 'api_key', key: 'sk-x' } }))
+    apply(fakeCtx(captured), Config({ piDir: dir }))
+    expect(captured.statusBox?.probe).toBeDefined()
+    const result = await captured.statusBox?.probe?.({ route: 'pi/nope', model: 'x' })
+    expect(result).toMatchObject({ ok: false, code: 'NO_ADAPTER' })
   })
 })

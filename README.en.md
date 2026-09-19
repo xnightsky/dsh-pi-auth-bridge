@@ -117,11 +117,13 @@ Neither pi-ai nor dsh reads `http_proxy`-style environment variables (pi itself 
 This is a dual-face plugin: besides the host-side LLM bridge, it ships a browser half that registers a **Pi Auth Bridge** section in the dsh web **Settings panel**, showing:
 
 - **Bridge status**: bridged / empty mount (with the reason: pi directory not found, unreadable config, no usable credentials, etc.);
-- **Route table**: for each `pi/*` route its source (pi-ai catalog / models.json), wire protocol, credential type (API Key / OAuth / none) and model count — **credential material never reaches the panel**;
-- **Proxy detection** result and every **warning** collected during bridging;
+- **Routes and model lists**: each `pi/*` route expands to a full model table (model id, context window, input modalities) — **credential material never reaches the panel**;
+- **Capability probe matrix**: a per-model **Test** button (runs every applicable dimension) plus clickable capability badges for single-dimension probes, covering text, image, reasoning and tool calling (✓ ok / ✗ failed / — not applicable / ? inconclusive). Probes are real API calls triggered on click and run through the bridge's full pipeline (request conversion + stream translation); applicability follows the model's declared capabilities (models without image/reasoning support show —). Every outcome carries a diagnostic detail line (finish kind, usage, reply preview, exception type, etc.) rendered in the panel and mirrored to the host log, so failures can be investigated without re-running. The latest reports are merged per dimension into the status snapshot and survive panel reopening;
+- **Plugin self-health**: a version table (plugin / dsh-llm / dsh-attachment / pi-ai), startup self-checks (dsh-llm attribution-header contract, dsh-attachment image target conversion contract, attachment service presence) and recent request errors (newest first, capped at 20) — whether an upgrade broke the bridge is visible at a glance;
+- **Effective config echo** (whitelist / OAuth toggle / command timeout), **proxy detection** result and every **warning** collected during bridging;
 - A static capability summary (bridge scope, security boundary).
 
-Mechanism: the host half mounts a Typert Remote service (`piAuthBridge/status`, read-only, no arguments); the browser half calls it via `ctx.remote.$mount` and renders into the `settings.section` slot. The panel is only active in the dsh web composition; headless compositions are unaffected.
+Mechanism: the host half mounts a Typert Remote service (`piAuthBridge/status` for the read-only snapshot, `piAuthBridge/probe` for capability probing); the browser half calls them via `ctx.remote.$mount` and renders into the `settings.section` slot. The panel is only active in the dsh web composition; headless compositions are unaffected.
 
 ## OAuth credential handling and limits
 

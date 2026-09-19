@@ -160,9 +160,12 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - `BridgeStatus` 是面板的唯一数据契约，也是 `@Remote` 的返回类型，必须只含 Typert 可投影类型：
   - `phase`: `'bridged' | 'empty'` —— 桥接成功 / 空挂载（empty 时带 `reason` 说明：pi 目录未找到 / 配置不可读 / 无可用凭据 / 路由全部不可服务 / llm 服务缺失）
   - `piDir?`: 实际使用的 pi 配置目录
-  - `routes`: `{ id, provider, api, credential: 'api_key' | 'oauth', models: number }[]`
+  - `routes`: `{ id, provider, kind, api?, credential: 'api_key' | 'oauth' | 'none', models, modelList? }[]`；`modelList` 为完整模型清单（`{ id, name?, contextWindow?, input[] }`，注册后由 `listModels`/`resolveModel` 本地目录异步填充，无网络）
   - `proxy`: `{ enabled, detected }` —— 开关状态与是否嗅探到代理变量
   - `warnings`: 桥接过程收集的全部警告（与 logger.warn 同源）
+  - `config?`: 生效配置回显（白名单 / includeOAuth / commandTimeoutMs）
+  - `versions?` / `selfChecks?` / `recentErrors?`：插件自健康（§5.8）
+  - `probes?`: 探测报告缓存（`Record<route\0model, ModelProbeReport>`，面板重开可见上次结果）
 - **安全不变量：状态快照绝不包含凭据本体**（key/token/refresh 一律不出现），只有凭据类型；`!command` 与 `$ENV` 的原始表达式也不进快照。`piDir` 是本机路径，面板运行在与 launch URL 同信任级的本机浏览器里，可接受。
 - 收集逻辑做成纯函数（从 locate/read/convert 各阶段的产出组装快照），apply 只负责调用与回填；各早退路径（含 llm 缺失）同样回填 `phase: 'empty'` + reason，保证面板永远有状态可看。
 
@@ -183,7 +186,7 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 ### 5.4 client 面板（client/index.tsx）
 - `apply(ctx)`（inject `['slots', 'remote']`）：`ctx.remote.$mount(TYPERT_REMOTE)`（来自本包 `./remote` 产物）。
 - **两段式启动（2026-09-20 实证修正）**：cordis 对点分服务键强制 inject 检查——访问 `ctx.remote.piAuthBridge` 会被代理解析为服务键 `remote.piAuthBridge`，未声明即抛 `cannot get property ... without inject`。但命名空间服务由 $mount 异步创建，模块级 inject 声明它会死锁（插件等服务、服务由插件创建）。官方模式（gateway 源码注释）：派生子插件 `ctx.plugin({ inject: ['slots', 'remote.piAuthBridge'], apply })` park 在命名空间服务上，服务出现后子插件启动，再 `ctx.slots.register({ name: 'settings.section', id: 'pi-auth-bridge', order: 100, label: () => 'Pi Auth Bridge' }, Panel)`。$mount 失败时子插件永远 park，必须 warn，禁止静默。
-- Panel 内容（React 18，宿主提供 react）：① 桥状态徽标（bridged/empty + reason）；② 路由表（路由 id、provider、协议、凭据类型、模型数）；③ 代理嗅探结果；④ 警告列表；⑤ 静态能力说明（桥接哪些协议、配置项、安全边界摘要）。
+- Panel 内容（React 18，宿主提供 react；呈现层拆在 `client/panel.tsx`，入口 `client/index.tsx` 只做 $mount 与 slot 接线）：① 桥状态徽标（bridged/empty + reason）；② 路由列表——每条路由可展开完整模型子表（模型 id、上下文窗口、输入模态、能力徽章、行内「测试」按钮），区块级「全部测试」串行编排；③ 代理嗅探结果与生效配置回显；④ 插件自健康（版本表 / 启动自检 / 近期请求错误，§5.8）；⑤ 警告列表；⑥ 静态能力说明（桥接哪些协议、配置项、安全边界摘要）。
 - 面板只读，不提供任何写操作（本插件无可写面）。
 
 ### 5.5 测试
@@ -196,3 +199,23 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 
 ### 5.6 影响面
 - 纯增量：host 入口导出与 apply 的桥接流程不变，仅回填状态盒；headless 组合（无 web）时 `dsh.client` 声明无副作用，typert 产物不被加载。
+
+### 5.7 能力探测矩阵（模型 × 能力，用户点击触发）
+- **动机**：桥的多提供商多模型各自能力不一（文本/图片/推理/工具调用），用时逐个撞坑成本高；且历史故障（09-19 图片 offload 契约、reasoning 档位、tool-call argumentsDelta、usage→finish 协议）都发生在转换层——探测必须走 `adapter.stream()` 的完整管线，不裸调 pi-ai。
+- `probe.ts`：`probeModel(adapter, route, model, only?)` 对单模型顺序跑适用维度（`only` 指定时按维度单测），产出 `ModelProbeReport{ route, model, at, ok, latencyMs, outcomes[] }`，每维 `CapabilityProbeOutcome{ capability, verdict: 'ok'|'failed'|'skipped'|'inconclusive', latencyMs, message?, detail? }`：
+  - `text`：maxTokens 16 的单词 ping；判定 = 终态 stop/max-tokens 且 usage 先于 finish（协议义务，缺失即协议违约）
+  - `image`：仅当 `inputModalities` 含 image（否则 skipped）；固定 1×1 PNG + 内置假 reader 走真实 `toPiContextWithImages` 管线；reader 断言 target 为 `{width, height, maxBytes}` 正整数（09-19 事故回归）
+  - `reasoning`：仅当模型支持 reasoning（否则 skipped）；取最低档（优先 low）、maxTokens 1024（思考预算下限）
+  - `toolCall`：`probe_echo` 工具 + 强制调用提示；触发 = ok，纯文本应答 = inconclusive（模型可能不支持也可能忽略，不算失败），流内 error = failed
+- 超时：常规 45s / 推理 90s；全部探测 `maxRetries: 0`（沿用 stream 默认）；单维失败收敛在 outcome，绝不向上抛；前置错误（未知路由/模型）由 `createProbeHandler` 映射为业务失败（保留 adapter 错误码）。
+- **可观测性**：每个 outcome 携带 `detail` 诊断串（终态、usage 是否到达、回复预览、工具调用次数、图片 target 形状、异常类型——区分超时与上游错误）；`createProbeHandler` 同时把「开始 + 每维结果 + 失败」写 host logger（失败走 warn）。出问题不必重跑即可回溯。
+- adapter 配合：`stream()` 委托给 `streamWithAttachments(options, attachmentsOverride?)`——探测用覆盖 reader，生产路径零分支差异。
+- 服务面：`@Remote('probe') probe(request)`，`ProbeRequest.capability` 可选（缺省全维度，指定则按维度单测）；空挂载返回 `not-bridged` 业务失败。apply 接线 `box.probe`，成功报告经 `recordProbeReport` 缓存进快照（`mergeProbeReport` 按维度合并：单测只覆盖该维度，保留其余维度历史结果；面板重开可见）。
+- 面板编排：每模型行内「测试」（全维度）+ 点击能力徽章按维度单测；**不做批量「全部测试」按钮**——全模型×全能力的笛卡尔积批量跑成本高、限流风险大，且 skipped/inconclusive 的合法结果会淹没真信号。能力徽章 4 维固定顺序（文本/图片/推理/工具），✓ ok / ✗ failed / — skipped / ? inconclusive；探测后模型行渲染每维 detail 详情行。
+
+### 5.8 插件自健康（版本表 / 启动自检 / 近期请求错误）
+- **动机**：2026-09-19 升级 dsh 0.1.6 后图片 offload 契约变化导致桥整体炸掉，但面板毫无迹象——插件自身的健康也必须可测、可见。
+- 版本表：`createRequire` 读本插件与 dsh-llm / dsh-attachment / pi-ai 的 package.json 版本；pi-ai 未导出 `./package.json`，读不到降级为缺省（面板显示「未知」），不视为失败。
+- 启动自检（apply 时本地契约检查，无网络）：`dsh-llm-contract`（attributionHeaders 可用）、`dsh-attachment-contract`（requestImageDimensions(100,100,4MiB) 返回正整数宽高——09-19 事故的直接回归）、`attachments-service`（附件服务已挂载，否则带图请求必显式报错）。
+- 近期请求错误：adapter 的 `recordError` 钩子把请求期错误（上游失败、图片转换失败）写入状态盒环形缓冲（新→旧，上限 20 条）；调用方中止（ABORTED）与调用契约错误（UNSUPPORTED_OPTION 等）不记录——它们是请求方问题，不是桥的健康信号。
+- 以上三项随每次快照回填（含 empty 早退路径），空挂载时面板同样能看到自健康。

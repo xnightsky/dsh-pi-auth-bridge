@@ -94,6 +94,11 @@ export interface PiAuthBridgeAdapterOptions {
    * 时调用；返回 undefined 时图片请求显式抛 `UNSUPPORTED_CONTENT`。
    */
   resolveAttachments?: () => ImageAttachmentReader | undefined
+  /**
+   * 请求期错误记录钩子（自健康面板的「近期错误」来源）。仅记录桥健康相关
+   * 错误（上游失败、图片转换失败等）；调用方中止与调用契约错误不记录。
+   */
+  recordError?: (entry: { at: number; route: string; model?: string; code: string; message: string }) => void
 }
 
 /** 拒绝自定义 fetch 的线路（pi-ai 的 google adapter 会抛错），代理注入按此跳过。 */
@@ -111,6 +116,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
   private readonly warn: Warn
   private readonly proxyFetch: FetchFunction | undefined
   private readonly resolveAttachments: (() => ImageAttachmentReader | undefined) | undefined
+  private readonly recordError: PiAuthBridgeAdapterOptions['recordError']
   private readonly proxySkipWarned = new Set<string>()
 
   /**
@@ -123,6 +129,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     this.warn = options.warn ?? (() => {})
     this.proxyFetch = options.proxyFetch
     this.resolveAttachments = options.resolveAttachments
+    this.recordError = options.recordError
     const reserved = new Set(Object.keys(attributionHeaders()).map((name) => name.toLowerCase()))
     const frozen = routes.map((route) => {
       if (route.headers !== undefined) {
@@ -200,7 +207,15 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     })
   }
 
-  override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
+  override stream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
+    return this.streamWithAttachments(options, undefined)
+  }
+
+  /**
+   * 与 `stream()` 完全同一管线，仅允许覆盖附件 reader——能力探测（probe.ts）
+   * 用内置假 reader 走通图片转换路径，其余调用方一律用 `stream()`。
+   */
+  async *streamWithAttachments(options: GenerateOptions, attachmentsOverride?: ImageAttachmentReader): AsyncGenerator<StreamChunk> {
     if (options.stop !== undefined) {
       throw new LlmError('pi-auth-bridge does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
@@ -212,11 +227,10 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     if (hasImages && !model.input.includes('image')) {
       throw new LlmError(`pi-auth-bridge model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
     }
-    const attachments = hasImages ? this.resolveAttachments?.() : undefined
+    const attachments = attachmentsOverride ?? (hasImages ? this.resolveAttachments?.() : undefined)
     if (hasImages && attachments === undefined) {
       throw new LlmError('pi-auth-bridge image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
-    const context = attachments === undefined ? toPiContext(options) : await toPiContextWithImages(options, { attachments })
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined ? consumer.signal : AbortSignal.any([options.signal, consumer.signal])
@@ -233,32 +247,43 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
       signal: upstream,
       maxRetries: 0,
     }
-    const iterator = toStreamChunks(this.models.streamSimple(model, context, streamOptions), model.contextWindow)[Symbol.asyncIterator]()
-    let exhausted = false
     try {
-      while (true) {
-        const result = await iterator.next()
-        if (result.done) {
-          exhausted = true
-          return
+      const context = attachments === undefined ? toPiContext(options) : await toPiContextWithImages(options, { attachments })
+      const iterator = toStreamChunks(this.models.streamSimple(model, context, streamOptions), model.contextWindow)[Symbol.asyncIterator]()
+      let exhausted = false
+      try {
+        while (true) {
+          const result = await iterator.next()
+          if (result.done) {
+            exhausted = true
+            return
+          }
+          yield result.value
         }
-        yield result.value
+      } finally {
+        if (!exhausted) {
+          consumer.abort('pi-auth-bridge stream consumer stopped')
+          try {
+            await iterator.return(undefined)
+          } catch (error) {
+            // 流已拆除，这里的失败只上报，不向外抛（finally 里抛出会掩盖主错误）。
+            this.warn(`pi-auth-bridge: upstream teardown failed after abort: ${(error as Error).message}`)
+          }
+        }
       }
     } catch (error) {
       if (options.signal?.aborted) {
         throw new LlmError('pi-auth-bridge request aborted by caller', 'ABORTED', { cause: error })
       }
+      // 桥健康相关错误（上游失败、图片转换失败等）记录给自健康面板。
+      this.recordError?.({
+        at: Date.now(),
+        route: options.provider,
+        model: options.model,
+        code: error instanceof LlmError ? error.code : 'REQUEST_FAILED',
+        message: (error as Error).message,
+      })
       throw error
-    } finally {
-      if (!exhausted) {
-        consumer.abort('pi-auth-bridge stream consumer stopped')
-        try {
-          await iterator.return(undefined)
-        } catch (error) {
-          // 流已拆除，这里的失败只上报，不向外抛（finally 里抛出会掩盖主错误）。
-          this.warn(`pi-auth-bridge: upstream teardown failed after abort: ${(error as Error).message}`)
-        }
-      }
     }
   }
 }

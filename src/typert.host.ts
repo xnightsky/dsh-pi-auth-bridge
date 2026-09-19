@@ -6,21 +6,21 @@
  *
  * @module dsh-pi-auth-bridge/typert.host
  */
-import { statusInvocation, TYPERT_PACKAGE } from './typert-common.js'
+import { probeInvocation, statusInvocation, TYPERT_PACKAGE } from './typert-common.js'
 
 /** Host 面贡献清单。声明为 unknown：消费方（loader/registry）运行时校验。 */
 export const TYPERT: unknown = {
   package: TYPERT_PACKAGE,
   face: 'host',
   schemas: [],
-  invocations: [statusInvocation],
+  invocations: [statusInvocation, probeInvocation],
   model: {
     services: [
       {
         key: 'piAuthBridge',
         exportName: 'PiAuthBridgeStatusService',
-        summary: '桥状态服务：向浏览器半区暴露只读的桥状态快照（无凭据本体）。',
-        description: '桥状态服务：向浏览器半区暴露只读的桥状态快照（无凭据本体）。',
+        summary: '桥状态服务：向浏览器半区暴露桥状态快照与能力探测（无凭据本体）。',
+        description: '桥状态服务：向浏览器半区暴露桥状态快照与能力探测（无凭据本体）。',
         tags: [],
         jsDoc: '/** 桥状态服务：向浏览器半区暴露只读的桥状态快照（无凭据本体）。 */',
         members: [
@@ -30,6 +30,13 @@ export const TYPERT: unknown = {
             signature: "@Remote('status') status(): Promise<BridgeStatus>",
             summary: '返回当前桥状态快照（凭据本体已被状态模型剔除）。',
             jsDoc: '/** 返回当前桥状态快照（凭据本体已被状态模型剔除）。 */',
+          },
+          {
+            kind: 'method',
+            name: 'probe',
+            signature: "@Remote('probe') probe(request: ProbeRequest): Promise<ProbeResult>",
+            summary: '对指定路由的指定模型跑能力探测（text/image/reasoning/toolCall）。',
+            jsDoc: '/** 对指定路由的指定模型跑能力探测（text/image/reasoning/toolCall）。 */',
           },
         ],
         types: [
