@@ -43,7 +43,7 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@`^0.1.2-rc.1 || ^0.1.5-rc.1`（peer，由 dsh 组合提供；0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing`，token meter 计量时无条件调用，本插件沿用基类默认的「不声明图片计价」）。
+依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@`^0.1.6-alpha.1`、`@deepseek-ai/dsh-attachment`@`^0.1.6-alpha.1`（peer，由 dsh 组合提供；`LlmAdapter` 的 `imageRequestPricing` 沿用基类默认的「不声明图片计价」）。0.1.6-alpha 线重构了图片卸载契约（`readImageRequest` target 为 `{width, height, maxBytes}`、超预算抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主决策），本版本起仅支持该线。
 
 > Node 版本：pi-ai 0.84.x 声明 `node >= 22.19`；本插件的全部功能在 Node 20 上实测通过（安装时仅有 EBADENGINE 警告），但建议与 dsh 保持一致使用 Node 22+。
 
@@ -101,7 +101,7 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
    - apiKey 优先级：`auth.json` 同名条目 > `models.json` 的 `apiKey` 字段；
    - 模型条目的 `input` 声明（如 `["text", "image"]`）透传为模型的输入模态——dsh 据此判定图片能力；未声明时回退 pi-ai 目录同名模型，目录也没有时视为纯文本；
    - 取值解析与 pi 一致：`"$ENV_VAR"` 读环境变量、`"!cmd args"` 执行 shell 命令取 stdout（默认 10s 超时，内存缓存，每次挂载最多执行一次）、其余为字面量。
-4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件：模型声明 image 输入且 dsh 组合挂了 dsh-attachment 服务时，durable 引用经 `readImageRequest` 投影（默认 2048×2048 / 1 MiB，请求级 20 MiB 预算按 dsh-llm 量化策略卸载最老图片）后以 base64 内联为 pi-ai image 块；模型不支持图片输入、附件服务缺失或非 user 角色带图时显式抛 `UNSUPPORTED_CONTENT`，不静默丢图。
+4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件：模型声明 image 输入且 dsh 组合挂了 dsh-attachment 服务时，durable 引用经 `readImageRequest` 投影（按 ref 尺寸换算 `{width, height, maxBytes}` target，默认 2048×2048 / 1 MiB；请求级 20 MiB 预算超出时抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主标记卸载后重试）后以 base64 内联为 pi-ai image 块；模型不支持图片输入、附件服务缺失或非 user 角色带图时显式抛 `UNSUPPORTED_CONTENT`，不静默丢图。
 
 ## 代理支持
 

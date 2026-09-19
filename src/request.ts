@@ -6,6 +6,12 @@
  * - 图片只在拿到 dsh 持久附件服务时转换：durable 引用经 `readImageRequest`
  *   生成请求版本后以 base64 内联为 pi-ai image 块；缺服务或非 user 角色携带
  *   图片时显式抛 `UNSUPPORTED_CONTENT`，绝不静默丢弃。
+ * - dsh-attachment 0.1.6 契约：`readImageRequest` 的 target 是逐附件的
+ *   `{width, height, maxBytes}`（由 `requestImageDimensions` 按像素预算换算），
+ *   宿主 `validateTarget` 校验正整数——传 `{maxPixels, maxBytes}` 会直接抛错。
+ * - 请求级图片字节超预算时不自行卸载：以真实版本字节经 `requiredImageOffload`
+ *   计量，抛 `LlmError(IMAGE_OFFLOAD_REQUIRED, { offloadImages })` 由宿主把最老
+ *   N 处标记 `offloaded` 后重试；已卸载块经 `projectOffloadedImages` 投影为占位文本。
  * - 历史消息中 role 为 `system` 的消息降级拼平为 user 消息——pi-ai Context
  *   只有一个 systemPrompt 槽位，由 `options.system` 占用；降级保持消息顺序。
  * - 工具调用 arguments 在 pi-ai 历史里是解析后的对象；模型产生的畸形 JSON
@@ -15,15 +21,18 @@
  */
 import {
   contentHasImage,
+  IMAGE_OFFLOAD_REQUIRED_CODE,
   LlmError,
   offloadedImageText,
-  offloadRequestImagesWithPolicy,
+  projectOffloadedImages,
   requestImageHandleText,
+  requiredImageOffload,
   type ContentBlock,
   type GenerateOptions,
   type Message as DshMessage,
   type ToolResultBlock,
 } from '@deepseek-ai/dsh-llm'
+import { requestImageDimensions, type ImageRequestTarget } from '@deepseek-ai/dsh-attachment'
 import type {
   AssistantMessage as PiAssistantMessage,
   Context as PiContext,
@@ -52,16 +61,17 @@ export interface RequestImagePolicy {
   maxBytes: number
 }
 
-/** dsh 持久附件服务的结构性子集：桥接器只读取请求版本，绝不保存或回写。 */
+/** dsh 持久附件服务的结构性子集：桥接器只读取请求版本，绝不保存或回写。
+ * target 直接用契约包类型——2026-09-19 事故证明自造参数类型会与宿主校验静默漂移。 */
 export interface ImageAttachmentReader {
-  readImageRequest(ref: ImageRef, policy: RequestImagePolicy, signal?: AbortSignal): Promise<RequestImageVersion>
+  readImageRequest(ref: ImageRef, target: ImageRequestTarget, signal?: AbortSignal): Promise<RequestImageVersion>
 }
 
 /** `toPiContextWithImages` 的图片支撑。 */
 export interface PiImageSupport {
   /** dsh 组合的持久附件服务（`ctx.get('attachments')`）。 */
   attachments: ImageAttachmentReader
-  /** 单次请求全部图片 base64 字节上限（默认 20 MiB；超出按 dsh-llm 量化策略从最老图片起替换为占位文本）。 */
+  /** 单次请求全部图片 base64 字节上限（默认 20 MiB；超出时抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主标记卸载后重试）。 */
   maxRequestImageBytes?: number
   /** 单张图片的请求版本策略（默认 2048×2048 像素 / 1 MiB，与官方 dsh-llm-pi-ai 的默认值一致）。 */
   requestImagePolicy?: RequestImagePolicy
@@ -237,15 +247,21 @@ function assertSupportedImageRoles(messages: readonly DshMessage[]): void {
   }
 }
 
-/** 收集全部图片引用（按首次出现去重，顺序稳定；tool result 的内容会嵌套）。 */
+/** 收集全部保留图片的引用（按首次出现去重，顺序稳定；tool result 的内容会嵌套；宿主已卸载的块不取字节）。 */
 function collectImageRefs(blocks: readonly ContentBlock[], refs: Map<string, ImageRef>): void {
   for (const block of blocks) {
-    if (block.type === 'image') refs.set(block.attachment.attachmentId, block.attachment)
-    else if (block.type === 'tool-result') collectImageRefs(block.content, refs)
+    if (block.type === 'image') {
+      if (block.offloaded !== true) refs.set(block.attachment.attachmentId, block.attachment)
+    } else if (block.type === 'tool-result') collectImageRefs(block.content, refs)
   }
 }
 
-/** 为卸载后保留的图片并行准备请求版本。 */
+/** 按 ref 各自尺寸把像素预算换算成 dsh-attachment 0.1.6 要求的请求 target；小图不放大。 */
+function requestImageTarget(ref: ImageRef, policy: RequestImagePolicy): ImageRequestTarget {
+  return { ...requestImageDimensions(ref.width, ref.height, policy.maxPixels), maxBytes: policy.maxBytes }
+}
+
+/** 为保留的图片并行准备请求版本。 */
 async function prepareRequestImages(
   messages: readonly DshMessage[],
   reader: ImageAttachmentReader,
@@ -255,19 +271,8 @@ async function prepareRequestImages(
   const refs = new Map<string, ImageRef>()
   for (const message of messages) collectImageRefs(message.content, refs)
   const ordered = [...refs.values()]
-  const prepared = await Promise.all(ordered.map((ref) => reader.readImageRequest(ref, policy, signal)))
+  const prepared = await Promise.all(ordered.map((ref) => reader.readImageRequest(ref, requestImageTarget(ref, policy), signal)))
   return new Map(ordered.map((ref, index) => [ref.attachmentId, prepared[index] as RequestImageVersion]))
-}
-
-/** 以 base64 表示按请求级字节预算卸载最老的图片（两遍：先按估值，再按真实版本长度）。 */
-function offloadImages(messages: readonly DshMessage[], maxBytes: number, byteLength: (ref: ImageRef) => number): readonly DshMessage[] {
-  return offloadRequestImagesWithPolicy(messages, {
-    representation: 'base64',
-    maxBytes,
-    byteQuantum: 1,
-    byteLength,
-    placeholder: (ref) => offloadedImageText(ref),
-  })
 }
 
 /**
@@ -286,14 +291,26 @@ export function toPiContext(options: GenerateOptions): PiContext {
 /**
  * 把一个含图片的 dsh 请求转换为 pi-ai 的 Context 词汇。持久引用经附件服务
  * 生成请求版本（默认 2048×2048 / 1 MiB 投影）后以 base64 内联；请求级总量
- * 超预算时按 dsh-llm 量化策略把最老图片替换为稳定的占位文本。
+ * 超预算时抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主标记卸载后重试（dsh-llm 0.1.6
+ * 契约，路由不自行卸载）；已卸载块投影为稳定的占位文本。
  */
 export async function toPiContextWithImages(options: GenerateOptions, images: PiImageSupport): Promise<PiContext> {
   assertSupportedImageRoles(options.messages)
   const policy = images.requestImagePolicy ?? DEFAULT_REQUEST_IMAGE_POLICY
   const maxBytes = images.maxRequestImageBytes ?? DEFAULT_MAX_REQUEST_IMAGE_BYTES
-  const bound = offloadImages(options.messages, maxBytes, (ref) => Math.min(ref.bytes, policy.maxBytes))
-  const versions = await prepareRequestImages(bound, images.attachments, policy, options.signal)
-  const exact = offloadImages(bound, maxBytes, (ref) => versions.get(ref.attachmentId)?.bytes ?? ref.bytes)
-  return piContext({ ...options, messages: exact as DshMessage[] }, buildMessages({ ...options, messages: exact as DshMessage[] }, versions))
+  const versions = await prepareRequestImages(options.messages, images.attachments, policy, options.signal)
+  const offloadCount = requiredImageOffload(
+    options.messages,
+    { representation: 'base64', maxBytes },
+    (block) => versions.get(block.attachment.attachmentId)?.bytes ?? block.attachment.bytes,
+  )
+  if (offloadCount > 0) {
+    throw new LlmError(
+      `pi-auth-bridge request images exceed the ${maxBytes}-byte base64 bound; ${offloadCount} more oldest occurrence(s) must be offloaded.`,
+      IMAGE_OFFLOAD_REQUIRED_CODE,
+      { offloadImages: offloadCount },
+    )
+  }
+  const exact = projectOffloadedImages(options.messages, (ref) => offloadedImageText(ref)) as DshMessage[]
+  return piContext({ ...options, messages: exact }, buildMessages({ ...options, messages: exact }, versions))
 }

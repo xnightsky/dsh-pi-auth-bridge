@@ -18,9 +18,10 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all'
+import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { PiAuthBridgeAdapter, type PiAuthBridgeAdapterOptions } from '../src/adapter.js'
 import { buildPiModels, type PiModelsLike } from '../src/provider.js'
-import { toPiContext, type ImageAttachmentReader } from '../src/request.js'
+import { toPiContext, type ImageAttachmentReader, type RequestImageVersion } from '../src/request.js'
 import type { RouteDef } from '../src/convert.js'
 
 /* ------------------------------------------------------------------ */
@@ -138,17 +139,27 @@ function makeAdapter(
   return { adapter: new PiAuthBridgeAdapter([fakeRoute(routeOverrides)], fake, adapterOptions), fake }
 }
 
-function imageBlock(attachmentId = 'a1'): ContentBlock {
+function imageBlock(attachmentId = 'a1', dimensions: { width: number; height: number } = { width: 4, height: 4 }): ContentBlock {
   return {
     type: 'image',
-    attachment: { attachmentId, mediaType: 'image/png', bytes: 3, width: 4, height: 4, name: 'pixel.png' },
+    attachment: { attachmentId, mediaType: 'image/png', bytes: 3, ...dimensions, name: 'pixel.png' },
   } as unknown as ContentBlock
 }
 
-function fakeImageReader(): ImageAttachmentReader {
+/** 一次 readImageRequest 调用的存证：dsh-attachment 0.1.6 契约要求 target 为 {width, height, maxBytes}。 */
+interface ImageRequestCall {
+  attachmentId: string
+  target: { width: number; height: number; maxBytes: number }
+}
+
+function fakeImageReader(versionOverrides: Partial<RequestImageVersion> = {}): ImageAttachmentReader & { calls: ImageRequestCall[] } {
+  const calls: ImageRequestCall[] = []
   return {
-    readImageRequest: (ref) =>
-      Promise.resolve({ data: new Uint8Array([1, 2, 3]), mediaType: ref.mediaType, bytes: 3, width: 4, height: 4 }),
+    calls,
+    readImageRequest: (ref, target) => {
+      calls.push({ attachmentId: String(ref.attachmentId), target })
+      return Promise.resolve({ data: new Uint8Array([1, 2, 3]), mediaType: ref.mediaType, bytes: 3, width: 4, height: 4, ...versionOverrides })
+    },
   }
 }
 
@@ -450,6 +461,68 @@ describe('PiAuthBridgeAdapter image conversion', () => {
     expect(toolResult?.role).toBe('toolResult')
     if (toolResult?.role !== 'toolResult') return
     expect(toolResult.content.some((block) => block.type === 'image')).toBe(true)
+  })
+
+  it('derives a per-attachment {width, height, maxBytes} target within the pixel budget', async () => {
+    const reader = fakeImageReader()
+    const { adapter } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      {},
+      { input: ['text', 'image'] },
+      { resolveAttachments: () => reader },
+    )
+    await collect(adapter.stream(genOptions({ messages: [dshMessage('user', [imageBlock('big', { width: 4000, height: 3000 })])] })))
+    // 回归：0.1.5 契约曾直接传 {maxPixels, maxBytes}，宿主 validateTarget 抛
+    // "Image request width must be a positive integer."，带图请求全灭
+    expect(reader.calls).toHaveLength(1)
+    expect(reader.calls[0]?.target).toEqual({ ...requestImageDimensions(4000, 3000, 4_194_304), maxBytes: 1_048_576 })
+  })
+
+  it('keeps source dimensions in the target for images within the pixel budget', async () => {
+    const reader = fakeImageReader()
+    const { adapter } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      {},
+      { input: ['text', 'image'] },
+      { resolveAttachments: () => reader },
+    )
+    await collect(adapter.stream(genOptions({ messages: [dshMessage('user', [imageBlock()])] })))
+    expect(reader.calls[0]?.target).toEqual({ width: 4, height: 4, maxBytes: 1_048_576 })
+  })
+
+  it('throws IMAGE_OFFLOAD_REQUIRED with the leading offload count over the byte budget', async () => {
+    const reader = fakeImageReader({ bytes: 16_000_000 })
+    const { adapter } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      {},
+      { input: ['text', 'image'] },
+      { resolveAttachments: () => reader },
+    )
+    await expect(collect(adapter.stream(genOptions({ messages: [dshMessage('user', [imageBlock()])] })))).rejects.toMatchObject({
+      code: 'IMAGE_OFFLOAD_REQUIRED',
+      failure: { offloadImages: 1 },
+    })
+  })
+
+  it('projects host-offloaded images to placeholder text without reading their bytes', async () => {
+    const reader = fakeImageReader()
+    const { adapter, fake } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      {},
+      { input: ['text', 'image'] },
+      { resolveAttachments: () => reader },
+    )
+    const offloaded = { ...imageBlock('old1'), offloaded: true } as ContentBlock
+    await collect(adapter.stream(genOptions({
+      messages: [dshMessage('user', [{ type: 'text', text: 'look' }, offloaded, imageBlock('new1')])],
+    })))
+    expect(reader.calls.map((call) => call.attachmentId)).toEqual(['new1'])
+    const message = fake.captured?.context.messages[0]
+    const content = message?.role === 'user' ? message.content : undefined
+    if (!Array.isArray(content)) throw new Error('expected array content')
+    const texts = content.filter((block) => block.type === 'text').map((block) => (block as { text: string }).text).join('')
+    expect(texts).toContain('omitted to fit request image limits')
+    expect(content.some((block) => block.type === 'image')).toBe(true)
   })
 })
 
