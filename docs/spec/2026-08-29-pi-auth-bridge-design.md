@@ -160,7 +160,7 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - `BridgeStatus` 是面板的唯一数据契约，也是 `@Remote` 的返回类型，必须只含 Typert 可投影类型：
   - `phase`: `'bridged' | 'empty'` —— 桥接成功 / 空挂载（empty 时带 `reason` 说明：pi 目录未找到 / 配置不可读 / 无可用凭据 / 路由全部不可服务 / llm 服务缺失）
   - `piDir?`: 实际使用的 pi 配置目录
-  - `routes`: `{ id, provider, kind, api?, credential: 'api_key' | 'oauth' | 'none', models, modelList? }[]`；`modelList` 为完整模型清单（`{ id, name?, contextWindow?, input[] }`，注册后由 `listModels`/`resolveModel` 本地目录异步填充，无网络）
+  - `routes`: `{ id, provider, kind, api?, credential: 'api_key' | 'oauth' | 'none', models, modelList? }[]`；`modelList` 为完整模型清单（`{ id, name?, contextWindow?, input[] }`，注册后由 `model-list.ts` 经 `listModels`/`resolveModel` 本地目录异步填充，无网络）
   - `proxy`: `{ enabled, detected }` —— 开关状态与是否嗅探到代理变量
   - `warnings`: 桥接过程收集的全部警告（与 logger.warn 同源）
   - `config?`: 生效配置回显（白名单 / includeOAuth / commandTimeoutMs）
@@ -215,6 +215,7 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 
 ### 5.8 插件自健康（版本表 / 启动自检 / 近期请求错误）
 - **动机**：2026-09-19 升级 dsh 0.1.6 后图片 offload 契约变化导致桥整体炸掉，但面板毫无迹象——插件自身的健康也必须可测、可见。
+- 实现位置：`self-health.ts`（`collectVersions` / `runSelfChecks`，组合根 index.ts 只调用不实现）。
 - 版本表：`createRequire` 读本插件与 dsh-llm / dsh-attachment / pi-ai 的 package.json 版本；pi-ai 未导出 `./package.json`，读不到降级为缺省（面板显示「未知」），不视为失败。
 - 启动自检（apply 时本地契约检查，无网络）：`dsh-llm-contract`（attributionHeaders 可用）、`dsh-attachment-contract`（requestImageDimensions(100,100,4MiB) 返回正整数宽高——09-19 事故的直接回归）、`attachments-service`（附件服务已挂载，否则带图请求必显式报错）。
 - 近期请求错误：adapter 的 `recordError` 钩子把请求期错误（上游失败、图片转换失败）写入状态盒环形缓冲（新→旧，上限 20 条）；调用方中止（ABORTED）与调用契约错误（UNSUPPORTED_OPTION 等）不记录——它们是请求方问题，不是桥的健康信号。

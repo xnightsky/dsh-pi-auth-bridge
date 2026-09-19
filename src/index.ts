@@ -23,10 +23,7 @@
  * @module dsh-pi-auth-bridge
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { createRequire } from 'node:module'
-import type { LlmResolvedModelInfo, LlmRuntime } from '@deepseek-ai/dsh-llm'
-import { attributionHeaders } from '@deepseek-ai/dsh-llm'
-import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
+import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { FetchFunction } from '@earendil-works/pi-ai'
 import z from '@deepseek-ai/schemastery'
 import { locatePiDir } from './pi-locator.js'
@@ -38,16 +35,13 @@ import {
   bridgedStatus,
   createStatusBox,
   emptyStatus,
-  modelListOf,
   recordProbeReport,
   recordRequestError,
-  type BridgeModelStatus,
-  type BridgeSelfCheck,
-  type BridgeStatusBox,
-  type BridgeVersions,
 } from './status.js'
 import { PiAuthBridgeStatusService } from './status-service.js'
 import { createProbeHandler } from './probe.js'
+import { collectVersions, runSelfChecks } from './self-health.js'
+import { fillModelLists } from './model-list.js'
 import type { ImageAttachmentReader } from './request.js'
 
 export { locatePiDir } from './pi-locator.js'
@@ -227,80 +221,3 @@ export function apply(ctx: Context, config: Config): void {
   logger.info(`pi-auth-bridge: bridged ${adapter.routes.length} route(s) from ${dir}: ${adapter.routes.join(', ')}`)
 }
 
-/** 异步填充各路由的模型清单（含 contextWindow）；失败仅 warn，不影响面板其余部分。 */
-async function fillModelLists(adapter: PiAuthBridgeAdapter, box: BridgeStatusBox, warn: Warn): Promise<void> {
-  try {
-    const lists = new Map<string, BridgeModelStatus[]>()
-    for (const route of adapter.routes) {
-      const listed = await adapter.listModels(route)
-      const resolved = (await Promise.all(listed.map((info) => adapter.resolveModel(route, info.id).catch(() => undefined)))).filter(
-        (info): info is LlmResolvedModelInfo => info !== undefined,
-      )
-      lists.set(route, modelListOf(listed, resolved))
-    }
-    const current = box.current
-    if (current.phase !== 'bridged') return
-    box.current = {
-      ...current,
-      routes: current.routes.map((route) => {
-        const modelList = lists.get(route.id)
-        return modelList === undefined ? route : { ...route, modelList }
-      }),
-    }
-  } catch (error) {
-    warn(`pi-auth-bridge: failed to collect model lists for the panel: ${(error as Error).message}`)
-  }
-}
-
-const localRequire = createRequire(import.meta.url)
-
-/** 读依赖包版本；包未导出 ./package.json（如 pi-ai）时降级为缺省（面板显示「未知」）。 */
-function depVersion(spec: string): string | undefined {
-  try {
-    return (localRequire(`${spec}/package.json`) as { version?: unknown }).version as string | undefined
-  } catch {
-    return undefined
-  }
-}
-
-/** 采集关键组件版本表。 */
-function collectVersions(): BridgeVersions {
-  const dshLlm = depVersion('@deepseek-ai/dsh-llm')
-  const dshAttachment = depVersion('@deepseek-ai/dsh-attachment')
-  const piAi = depVersion('@earendil-works/pi-ai')
-  return {
-    plugin: (localRequire('../package.json') as { version: string }).version,
-    ...(dshLlm === undefined ? {} : { dshLlm }),
-    ...(dshAttachment === undefined ? {} : { dshAttachment }),
-    ...(piAi === undefined ? {} : { piAi }),
-  }
-}
-
-/**
- * 启动自检（本地契约检查，无网络）：逐项回归「升级后桥整个炸掉」的历史
- * 故障面——dsh-llm 归因头契约、dsh-attachment 0.1.6 的 target 换算契约
- * （2026-09-19 事故）、图片请求前提（附件服务已挂载）。
- */
-function runSelfChecks(ctx: Context): BridgeSelfCheck[] {
-  const checks: BridgeSelfCheck[] = []
-  try {
-    const headers = attributionHeaders()
-    checks.push({ id: 'dsh-llm-contract', ok: typeof headers === 'object' && Object.keys(headers).length > 0 })
-  } catch (error) {
-    checks.push({ id: 'dsh-llm-contract', ok: false, message: (error as Error).message })
-  }
-  try {
-    const target = requestImageDimensions(100, 100, 4_194_304)
-    const valid = Number.isInteger(target.width) && target.width > 0 && Number.isInteger(target.height) && target.height > 0
-    checks.push({ id: 'dsh-attachment-contract', ok: valid, ...(valid ? {} : { message: `unexpected target ${JSON.stringify(target)}` }) })
-  } catch (error) {
-    checks.push({ id: 'dsh-attachment-contract', ok: false, message: (error as Error).message })
-  }
-  const attachments = ctx.get('attachments')
-  checks.push({
-    id: 'attachments-service',
-    ok: attachments !== undefined,
-    ...(attachments === undefined ? { message: '附件服务未挂载，带图请求将显式报错' } : {}),
-  })
-  return checks
-}

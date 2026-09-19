@@ -222,7 +222,7 @@ export function modelListOf(
 }
 
 /** 近期错误环形缓冲上限。 */
-export const MAX_RECENT_ERRORS = 20
+const MAX_RECENT_ERRORS = 20
 
 /** 探测报告缓存键。 */
 export function probeKey(route: string, model: string): string {
