@@ -45,14 +45,20 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 - dsh web 模型选择器的展示结构（2026-08-29 核实全局安装产物）：只有两级「分组 → 模型」。分组 key = provider 路由 id **原样**（不按 `/` 或任何分隔符切分），分组标题 = `LlmProviderInfo.name`；路由 id 仅校验非空，`/` 合法。因此 PI 无法成为真正的三级「渠道」，出处只能编码进路由 id 前缀与分组标题（见 §2.3）。
 - 插件安装机制（2026-08-29 核实 `@deepseek-ai/dsh`@0.1.1-rc.2 全局产物 `lib/plugin-9h8shc4d.js`）：`dsh plugin --profile <name> <args...>` 是 pnpm 转发器，在 profile 目录执行 `pnpm <args...>`，因此 registry 包名 / git URL / tarball / 本地路径均可安装。安装后按真实包名 reconcile：声明了 `dsh.bundle.patch` 的依赖自动加入 `dsh.profile.bundles` 层栈，git/path/tarball 安装与 registry 安装行为一致。git 安装的包靠 `prepare` 脚本在安装时构建，pnpm 默认拦截依赖构建脚本，需把对应 key 加入 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds` 后重跑（dsh 失败时会打印该提示）。pnpm 11 实测两轮拦截：插件 prepare 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`；pi-ai 传递依赖 `@google/genai`/`protobufjs` 的构建脚本报 `ERR_PNPM_IGNORED_BUILDS`，pnpm 会把占位条目写入 `allowBuilds`，改为 `true` 重跑即可（2026-08-29 在 profile `pab-e2e` 端到端验证：git tag 安装成功、`dist/` 由 prepare 构建、bundle 自动入栈）。
 
+### dsh 插件面板机制（2026-09-20 实证宿主 dsh@0.1.6-alpha.2 全局产物 + 官方文档）
+- **双面（dual-face）插件形态**：单包可同时有 host 半区与 client（浏览器）半区。声明 = `package.json` 的 `exports["./client"]` + `dsh.client: { inject: [<包名>...], platform: "web" }`；host 扫描 Loader 条目自动组 `window.__DSH_BOOT__` 并经 `/plugins/<id>/client.js` 供浏览器加载，client 半区是 CJS 懒加载模块表（首次 require 才执行副作用）。社区参考实现：`dsh-live-stats`（tsc 产类型 + tsdown 打 client）。
+- **UI 挂载点 = slot 系统**：client 半区 `ctx.slots.register({ name: 'settings.section', id, order, label }, Component)` 即在 Settings 面板挂出本插件区块（实证 `dsh-client-ui-settings-general` 用 `renderSlot('settings.section', …)` 渲染、`dsh-client-ui-settings-plugins` 以此注册）。slot 注册不需改 dsh 源码。0.1.5 起另有右侧边栏 tab（`ctx.sidebarRight`），本插件不用。
+- **host→浏览器数据通道 = Typert Remote**：作者侧五步（实证官方文档 `learn/dev/typert-authoring` + 第一方参考 `dsh-message-feedback`）：① 导出服务类继承 `TypertRemoteService`（`@deepseek-ai/dsh-typert-protocol`，本地 0.1.6-alpha.2 已核实导出）并以 `@Remote('name')` 标注方法（TC39 标准装饰器签名，**不是** legacy experimentalDecorators）；② 构建期 `@deepseek-ai/dsh-typert-generator` 的 tsdown 插件 `typertPlugin({mode:'workspace',faces:['host']})` 产 `typert.host.{js,d.ts}` + `typert.remote-client.{js,d.ts}`（生成产物 import `zod`）；③ `package.json` exports 暴露 `./typert` 与 `./remote` 并列入 `files`；④ 宿主内置 `dsh-typert-loader` 自动发现 Loader 条目的 `./typert` 导出并注册进 `ctx.typert`（实证其 lib/index.js 模块头注释）；⑤ client 半区 `ctx.remote.$mount(TYPERT_REMOTE)`（`ctx.remote` 由 `@deepseek-ai/dsh-api-gateway` 的 client 半区提供，实证 `dsh-api-remotes/lib/client.js` 即以此挂载 14 个第一方 contribution）获得类型化调用代理。
+- `@Remote` 方法的参数/返回值经 zod schema 过边界：只支持可投影类型（字面量/数组/union/interface/Record 等），函数、Map/Set、泛型根会直接分析失败；public 实例方法才可暴露。
+
 ## 1. 项目形态
 
-- 独立 npm 包 `dsh-pi-auth-bridge`，ESM，TypeScript。
-- dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`, `undici`（§2.5 代理 fetch；对齐 pi CLI 同款）
-- peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@^0.1.6-alpha.1, `@deepseek-ai/dsh-attachment`@^0.1.6-alpha.1
-- devDependencies: `typescript`, `vitest`, `@types/node`
-- 构建：`tsc` → `dist/`（ESM + .d.ts）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
-- 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `pi-auth-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。
+- 独立 npm 包 `dsh-pi-auth-bridge`，ESM，TypeScript；**双面（dual-face）插件**：host 半区（cordis 插件）+ client 半区（Settings 面板区块，见 §5）。
+- dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`, `undici`（§2.5 代理 fetch；对齐 pi CLI 同款）, `@deepseek-ai/dsh-typert-protocol`（§5 状态服务基类与 `@Remote` 装饰器）, `zod`（§5 生成的 remote-client 产物 import `zod`）
+- peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@^0.1.6-alpha.1, `@deepseek-ai/dsh-attachment`@^0.1.6-alpha.1, `react`（client 半区组件，宿主 web 提供）
+- devDependencies: `typescript`, `vitest`, `@types/node`, `tsdown`（§5 client 打包）, `react`/`react-dom`/`@types/react`/`@types/react-dom` + `@testing-library/react` + `jsdom`（client 测试）, `@deepseek-ai/dsh-typert-registry`（产物回归测试）, `@deepseek-ai/dsh-api-gateway` / `@deepseek-ai/dsh-client-ui-renderer` / `@deepseek-ai/dsh-client-ui-settings`（client 半区类型合并来源）
+- 构建：`tsc` → `dist/`（ESM + .d.ts，含手写 Typert 产物）；`tsdown` → `dist/client.js`（CJS 懒加载模块表，zod 内联）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
+- 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `pi-auth-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。client 半区声明 `exports["./client"]` + `dsh.client.inject = ['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-renderer']`；Typert 产物声明 `exports["./typert"]` / `exports["./remote"]`。
 - 分发与版本：git 直装（`prepare: npm run build` 在安装时构建 `dist/`）+ GitHub Release（push `v*` tag 触发 `.github/workflows/release.yml`，附 `npm pack` 产物）；`npm version` 手动发版，真相源 = `package.json` + `v*` tag；不发布 npm registry。
 
 ## 2. 模块划分
@@ -67,6 +73,12 @@ src/
   request.ts      # dsh GenerateOptions → pi-ai Context 的请求转换
   stream.ts       # pi-ai 事件流 → dsh StreamChunk 的翻译（usage→finish）
   adapter.ts      # PiAuthBridgeAdapter implements LlmAdapter（组合以上四者）
+  status.ts       # §5 桥状态模型与收集（纯函数，可单测）
+  status-service.ts # §5 TypertRemoteService 子类，@Remote('status') 暴露快照
+  typert-common.ts  # §5 Typert 产物共享段（zod 投影 + status 描述符）
+  typert.host.ts    # §5 Host 面 TYPERT 清单（手写产物，原因见 §5.3）
+  typert.remote-client.ts # §5 Host-for-Client Remote 投影（含命名空间类型合并）
+  client/index.tsx  # §5 浏览器半区：settings.section 状态面板
   index.ts        # cordis 插件入口
 tests/            # vitest
 README.md         # 中文为主，附 English 摘要
@@ -139,3 +151,48 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - 安全说明：只读 pi 文件；凭据全程内存；不修改 `~/.pi` 与 `$DSH_HOME` 下任何文件
 - Windows + Linux 支持说明（路径、PI_CODING_AGENT_DIR）
 - 代理说明：默认嗅探 `http_proxy`/`https_proxy`/`all_proxy`/`no_proxy` 并注入代理 fetch；`proxy: false` 关闭；google 线路需 `NODE_USE_ENV_PROXY=1` 启动 dsh 兜底（§2.5 方案 B）
+
+## 5. 插件面板（dual-face + Typert Remote）
+
+> 目标：在 dsh web 的 Settings 面板挂出本插件区块，展示桥的真实运行状态与能力说明。机制事实见 §0「dsh 插件面板机制」。
+
+### 5.1 状态模型（status.ts，纯数据 + 纯函数）
+- `BridgeStatus` 是面板的唯一数据契约，也是 `@Remote` 的返回类型，必须只含 Typert 可投影类型：
+  - `phase`: `'bridged' | 'empty'` —— 桥接成功 / 空挂载（empty 时带 `reason` 说明：pi 目录未找到 / 配置不可读 / 无可用凭据 / 路由全部不可服务 / llm 服务缺失）
+  - `piDir?`: 实际使用的 pi 配置目录
+  - `routes`: `{ id, provider, api, credential: 'api_key' | 'oauth', models: number }[]`
+  - `proxy`: `{ enabled, detected }` —— 开关状态与是否嗅探到代理变量
+  - `warnings`: 桥接过程收集的全部警告（与 logger.warn 同源）
+- **安全不变量：状态快照绝不包含凭据本体**（key/token/refresh 一律不出现），只有凭据类型；`!command` 与 `$ENV` 的原始表达式也不进快照。`piDir` 是本机路径，面板运行在与 launch URL 同信任级的本机浏览器里，可接受。
+- 收集逻辑做成纯函数（从 locate/read/convert 各阶段的产出组装快照），apply 只负责调用与回填；各早退路径（含 llm 缺失）同样回填 `phase: 'empty'` + reason，保证面板永远有状态可看。
+
+### 5.2 host 状态服务（status-service.ts）
+- `PiAuthBridgeStatusService extends TypertRemoteService`，cordis key `piAuthBridge`（`declare module '@deepseek-ai/cordis'` 增广 Context）；构造时持有 §5.1 的可变状态盒。
+- `@Remote('status') status(): Promise<BridgeStatus>` 返回当前快照。只读、无参数、无 lookup/context 身份解析——不注册 `ctx.typert.lookups/contexts`（YAGNI）。
+- apply 开头即 `ctx.plugin(PiAuthBridgeStatusService, box)` 挂载服务，再走原有 locate→read→convert→register 流程；服务不依赖 llm，空挂载时面板仍可工作。
+- `@Remote` 是 TC39 标准装饰器：tsconfig 不开 `experimentalDecorators`，TS ≥ 5 原生支持。
+
+### 5.3 构建链与产物来源（手写 Typert 产物）
+- **关键决策：Typert 产物手写，不跑官方生成器。** `@deepseek-ai/dsh-typert-generator` 的发现逻辑绑定 monorepo 布局——workspace 根必须有 `tsconfig.host.json`，且包必须位于 `<root>/packages/` 下（0.1.6-alpha.2 源码实证，`loadRegistrations` 的 `isWithin(realPath(packageRoot), join(root, 'packages'))` 过滤）；本仓是独立单包仓库，无法被其发现。
+- 产物改为手写源码，三重防漂移：① 类型锚定协议包公开类型（`InvocationDescriptor` / `TypertRemoteContribution` / `TypertRemoteNamespaceMap` 合并，typecheck 拦截格式漂移）；② `tests/typert-artifacts.test.ts` 把 TYPERT 注册进真实 `@deepseek-ai/dsh-typert-registry` 并用全部真实快照 round-trip 严格编解码；③ 结构逐项对齐 `dsh-typert-loader` 的 validateTypertManifest 校验。
+- `tsc -p tsconfig.build.json` → `dist/`：host 半区 + Typert 产物（`src/typert-common.ts` / `src/typert.host.ts` / `src/typert.remote-client.ts`，产物即源码，随包发布）。
+- `tsdown` 只打浏览器半区 `dist/client.js`：CJS + `window.__ModuleLoader__.load` 包装（对齐官方 client 产物形态）；react 外部化（宿主模块加载器提供），zod 与 Typert 共享段内联（官方产物同样内联 zod）。
+- `package.json`：exports 增加 `./client` → `dist/client.js`（types 指向 tsc 产的 `dist/client/index.d.ts`）、`./typert` → `dist/typert.host.*`、`./remote` → `dist/typert.remote-client.*`；`dsh.client = { inject: ['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-renderer'], platform: 'web' }`。
+- 宿主侧零配置：`dsh-typert-loader` 自动发现 `./typert` 并注册；bundle 安装路径不变。
+
+### 5.4 client 面板（client/index.tsx）
+- `apply(ctx)`（inject `['slots', 'remote']`）：`ctx.remote.$mount(TYPERT_REMOTE)`（来自本包 `./remote` 产物）。
+- **两段式启动（2026-09-20 实证修正）**：cordis 对点分服务键强制 inject 检查——访问 `ctx.remote.piAuthBridge` 会被代理解析为服务键 `remote.piAuthBridge`，未声明即抛 `cannot get property ... without inject`。但命名空间服务由 $mount 异步创建，模块级 inject 声明它会死锁（插件等服务、服务由插件创建）。官方模式（gateway 源码注释）：派生子插件 `ctx.plugin({ inject: ['slots', 'remote.piAuthBridge'], apply })` park 在命名空间服务上，服务出现后子插件启动，再 `ctx.slots.register({ name: 'settings.section', id: 'pi-auth-bridge', order: 100, label: () => 'Pi Auth Bridge' }, Panel)`。$mount 失败时子插件永远 park，必须 warn，禁止静默。
+- Panel 内容（React 18，宿主提供 react）：① 桥状态徽标（bridged/empty + reason）；② 路由表（路由 id、provider、协议、凭据类型、模型数）；③ 代理嗅探结果；④ 警告列表；⑤ 静态能力说明（桥接哪些协议、配置项、安全边界摘要）。
+- 面板只读，不提供任何写操作（本插件无可写面）。
+
+### 5.5 测试
+- status.ts：各 phase 的快照组装（bridged 全字段 / 四种 empty reason）、凭据本体不泄漏（快照序列化后不含敏感串）。
+- status-service：真实 cordis 组合挂载后 `status()` 返回盒内快照；`typertRemote` 绑定键正确。
+- typert-artifacts：TYPERT 注册进真实 registry；结果编解码对全部真实快照 round-trip 无漂移；凭据不越界。
+- index：apply 各路径回填状态盒（empty reason / bridged 快照）。
+- client：组件三态渲染（loading→ready/failed，jsdom + @testing-library/react）；apply 挂载贡献并注册 settings.section。
+- 原有测试不动；`npm run typecheck && npm test && npm run build` 全绿为验收。
+
+### 5.6 影响面
+- 纯增量：host 入口导出与 apply 的桥接流程不变，仅回填状态盒；headless 组合（无 web）时 `dsh.client` 声明无副作用，typert 产物不被加载。

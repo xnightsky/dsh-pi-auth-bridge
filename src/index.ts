@@ -6,6 +6,11 @@
  * —— 不写 dsh 凭据存储、不回写 `~/.pi`、不写任何临时文件。当 pi 未安装
  * （或没有任何可提供的路由）时，插件以警告空挂载，而不是让组合失败。
  *
+ * 本包同时是双面（dual-face）插件：host 半区（本文件）挂载 Typert Remote
+ * 桥状态服务（`piAuthBridge/status`，只读、无凭据本体），浏览器半区
+ * （`client/index.tsx` → `dist/client.js`）在 dsh web 的 Settings 面板渲染
+ * 「Pi Auth Bridge」状态区块。headless 组合中 client 声明无副作用。
+ *
  * 遵循官方 dsh 插件（bundle）约定：导出 `name` / `inject: ['llm']` /
  * `Config` / `apply`，并在包中声明 `dsh.bundle.patch` → 根目录
  * `cordis.patch.yml`。开发时也可以按绝对路径插入任意 cordis 层：
@@ -26,6 +31,8 @@ import { createValueResolver, readPiAuth, readPiModels, type Warn } from './pi-a
 import { buildRoutes } from './convert.js'
 import { PiAuthBridgeAdapter } from './adapter.js'
 import { createEnvProxyFetch } from './proxy.js'
+import { bridgedStatus, createStatusBox, emptyStatus } from './status.js'
+import { PiAuthBridgeStatusService } from './status-service.js'
 import type { ImageAttachmentReader } from './request.js'
 
 export { locatePiDir } from './pi-locator.js'
@@ -40,6 +47,14 @@ export { toPiContext, toPiContextWithImages } from './request.js'
 export type { ImageAttachmentReader, PiImageSupport, RequestImagePolicy, RequestImageVersion } from './request.js'
 export { mapStopReason, mapUsage, toStreamChunks } from './stream.js'
 export { PiAuthBridgeAdapter } from './adapter.js'
+export {
+  bridgedStatus,
+  createStatusBox,
+  emptyStatus,
+  routeStatusOf,
+} from './status.js'
+export type { BridgeEmptyReason, BridgeRouteStatus, BridgeStatus, BridgeStatusBox } from './status.js'
+export { PiAuthBridgeStatusService } from './status-service.js'
 
 export const name = 'pi-auth-bridge'
 
@@ -92,17 +107,32 @@ function resolveProxyFetch(config: Config, info: (message: string) => void): Fet
 /** 挂载桥接器：定位 → 读取 → 转换 → 注册。pi 缺失时绝不抛错。 */
 export function apply(ctx: Context, config: Config): void {
   const logger = ctx.logger(name)
-  const warn: Warn = (message) => logger.warn(message)
+  // 警告同时进入状态盒（面板可见）与 logger。
+  const warnings: string[] = []
+  const warn: Warn = (message) => {
+    warnings.push(message)
+    logger.warn(message)
+  }
+
+  // 状态服务最先挂载、不依赖 llm：空挂载时面板也能读到原因（§5.2）。
+  const box = createStatusBox(emptyStatus('llm-missing', 'the llm service is not mounted in this composition'))
+  ctx.plugin(PiAuthBridgeStatusService, box)
+
+  const proxyEnabled = config.proxy !== false
+  const proxyFetch = resolveProxyFetch(config, (message) => logger.info(message))
+  const proxy = { enabled: proxyEnabled, detected: proxyFetch !== undefined }
 
   const llm = ctx.llm as LlmRuntime | undefined
   if (llm === undefined) {
     warn('pi-auth-bridge: the llm service is not mounted in this composition; plugin mounted with no routes')
+    box.current = emptyStatus('llm-missing', 'the llm service is not mounted in this composition', { proxy, warnings })
     return
   }
 
   const dir = locatePiDir(config.piDir === undefined ? {} : { piDir: config.piDir })
   if (dir === undefined) {
     warn('pi-auth-bridge: pi configuration directory not found (looked at $PI_CODING_AGENT_DIR and ~/.pi/agent); plugin mounted with no routes')
+    box.current = emptyStatus('pi-dir-not-found', 'looked at $PI_CODING_AGENT_DIR and ~/.pi/agent', { proxy, warnings })
     return
   }
 
@@ -114,6 +144,7 @@ export function apply(ctx: Context, config: Config): void {
   } catch (error) {
     // 损坏的 pi 文件只会禁用桥接器，绝不影响组合。
     warn(`pi-auth-bridge: cannot load pi configuration: ${(error as Error).message}; plugin mounted with no routes`)
+    box.current = emptyStatus('pi-config-unreadable', (error as Error).message, { piDir: dir, proxy, warnings })
     return
   }
 
@@ -127,10 +158,9 @@ export function apply(ctx: Context, config: Config): void {
   })
   if (routes.length === 0) {
     warn(`pi-auth-bridge: no usable provider credentials found in ${dir}; plugin mounted with no routes`)
+    box.current = emptyStatus('no-credentials', `no usable provider credentials found in ${dir}`, { piDir: dir, proxy, warnings })
     return
   }
-
-  const proxyFetch = resolveProxyFetch(config, (message) => logger.info(message))
 
   const adapter = new PiAuthBridgeAdapter(routes, undefined, {
     warn,
@@ -140,6 +170,7 @@ export function apply(ctx: Context, config: Config): void {
   })
   if (adapter.routes.length === 0) {
     warn(`pi-auth-bridge: none of the ${routes.length} candidate route(s) in ${dir} can be served; plugin mounted with no routes`)
+    box.current = emptyStatus('no-servable-routes', `none of the ${routes.length} candidate route(s) can be served`, { piDir: dir, proxy, warnings })
     return
   }
 
@@ -149,5 +180,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => () => {
     handle()
   }, 'pi-auth-bridge: unregister llm adapter')
+  // 快照持有 warnings 的活引用：注册后再产生的警告也会进入面板。
+  box.current = bridgedStatus({ piDir: dir, routes, proxy, warnings })
   logger.info(`pi-auth-bridge: bridged ${adapter.routes.length} route(s) from ${dir}: ${adapter.routes.join(', ')}`)
 }

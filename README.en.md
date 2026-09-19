@@ -43,7 +43,7 @@ npm run build   # produces dist/ (ESM + .d.ts)
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch); `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@`^0.1.6-alpha.1` and `@deepseek-ai/dsh-attachment`@`^0.1.6-alpha.1` (peers, provided by the dsh composition; `LlmAdapter.imageRequestPricing` keeps the base-class default of declaring no image pricing). The 0.1.6-alpha line rebuilt the image-offload contract (`readImageRequest` targets are `{width, height, maxBytes}`; over-budget requests raise `IMAGE_OFFLOAD_REQUIRED` for the host to decide) — this version supports that line only.
+Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch), `zod` (Typert artifact schemas); `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@`^0.1.6-alpha.1`, `@deepseek-ai/dsh-attachment`@`^0.1.6-alpha.1`, `@deepseek-ai/dsh-typert-protocol`@`^0.1.6-alpha.1` and `react` (peers, provided by the dsh composition; `LlmAdapter.imageRequestPricing` keeps the base-class default of declaring no image pricing). The 0.1.6-alpha line rebuilt the image-offload contract (`readImageRequest` targets are `{width, height, maxBytes}`; over-budget requests raise `IMAGE_OFFLOAD_REQUIRED` for the host to decide) — this version supports that line only.
 
 > Node version: pi-ai 0.84.x declares `node >= 22.19`. Every feature of this plugin has been verified on Node 20 (only an EBADENGINE warning at install time), but Node 22+ is recommended to stay in line with dsh.
 
@@ -112,6 +112,17 @@ Neither pi-ai nor dsh reads `http_proxy`-style environment variables (pi itself 
 - **Google routes are the exception**: the pi-ai adapters for `google-generative-ai` / `google-vertex` reject custom fetch, so those routes get no injection (one warn per route). To proxy them, start dsh with `NODE_USE_ENV_PROXY=1` (Node ≥ 24.5) so Node's built-in fetch reads the proxy variables itself — this is also the global alternative if you prefer not to depend on undici.
 - A startup log line `pi-auth-bridge: proxy environment detected; ...` confirms proxy injection is active.
 
+## Plugin panel (Settings → Pi Auth Bridge)
+
+This is a dual-face plugin: besides the host-side LLM bridge, it ships a browser half that registers a **Pi Auth Bridge** section in the dsh web **Settings panel**, showing:
+
+- **Bridge status**: bridged / empty mount (with the reason: pi directory not found, unreadable config, no usable credentials, etc.);
+- **Route table**: for each `pi/*` route its source (pi-ai catalog / models.json), wire protocol, credential type (API Key / OAuth / none) and model count — **credential material never reaches the panel**;
+- **Proxy detection** result and every **warning** collected during bridging;
+- A static capability summary (bridge scope, security boundary).
+
+Mechanism: the host half mounts a Typert Remote service (`piAuthBridge/status`, read-only, no arguments); the browser half calls it via `ctx.remote.$mount` and renders into the `settings.section` slot. The panel is only active in the dsh web composition; headless compositions are unaffected.
+
 ## OAuth credential handling and limits
 
 - access token **unexpired** (or no `expires`) → used directly as a bearer key;
@@ -159,8 +170,8 @@ In one sentence: the official adapter targets the harness-owned credential/login
 
 ```bash
 npm run typecheck   # tsc --noEmit, zero errors under strict mode
-npm run build       # tsc -p tsconfig.build.json → dist/
-npm test            # vitest run, 84 test cases
+npm run build       # tsc → dist/ (host + Typert artifacts), tsdown → dist/client.js (browser half)
+npm test            # vitest run, 116 test cases
 ```
 
 All tests use temp-directory fixtures and mocks (injected `execCmd`, fake pi-ai streams); they never touch the real `~/.pi` and never access the network.

@@ -43,7 +43,7 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@`^0.1.6-alpha.1`、`@deepseek-ai/dsh-attachment`@`^0.1.6-alpha.1`（peer，由 dsh 组合提供；`LlmAdapter` 的 `imageRequestPricing` 沿用基类默认的「不声明图片计价」）。0.1.6-alpha 线重构了图片卸载契约（`readImageRequest` target 为 `{width, height, maxBytes}`、超预算抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主决策），本版本起仅支持该线。
+依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）、`zod`（Typert 产物 schema）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@`^0.1.6-alpha.1`、`@deepseek-ai/dsh-attachment`@`^0.1.6-alpha.1`、`@deepseek-ai/dsh-typert-protocol`@`^0.1.6-alpha.1`、`react`（peer，由 dsh 组合提供；`LlmAdapter` 的 `imageRequestPricing` 沿用基类默认的「不声明图片计价」）。0.1.6-alpha 线重构了图片卸载契约（`readImageRequest` target 为 `{width, height, maxBytes}`、超预算抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主决策），本版本起仅支持该线。
 
 > Node 版本：pi-ai 0.84.x 声明 `node >= 22.19`；本插件的全部功能在 Node 20 上实测通过（安装时仅有 EBADENGINE 警告），但建议与 dsh 保持一致使用 Node 22+。
 
@@ -112,6 +112,17 @@ pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代�
 - **google 线路例外**：`google-generative-ai` / `google-vertex` 的 pi-ai adapter 拒绝自定义 fetch，这两条路由不注入（每路由 warn 一次）。如需给它们走代理，以 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）启动 dsh，让 Node 内建 fetch 自己读代理变量——这也是不想依赖 undici 时的全局备选。
 - 启动日志出现 `pi-auth-bridge: proxy environment detected; ...` 即代理注入已生效。
 
+## 插件面板（Settings → Pi Auth Bridge）
+
+本插件是双面（dual-face）插件：除 host 半区的 LLM 桥外，还带一个浏览器半区，在 dsh web 的 **Settings 面板**中注册「Pi Auth Bridge」区块，展示：
+
+- **桥状态**：已桥接 / 空挂载（含原因：未找到 pi 目录、配置不可读、无可用凭据等）；
+- **路由表**：每条 `pi/*` 路由的来源（pi-ai 目录 / models.json）、线协议、凭据类型（API Key / OAuth / 无需密钥）与模型数——**凭据本体绝不进入面板**；
+- **代理嗅探结果**与桥接过程的全部**警告**；
+- 静态能力说明（桥接范围、安全边界）。
+
+实现机制：host 半区挂载一个 Typert Remote 服务（`piAuthBridge/status`，只读无参），浏览器半区经 `ctx.remote.$mount` 调用并渲染进 `settings.section` 槽位。面板只在 dsh web 组合中生效，headless 组合无副作用。
+
 ## OAuth 凭据的处理与限制
 
 - access token **未过期**（或无 `expires`）→ 直接当 bearer key 使用；
@@ -159,8 +170,8 @@ pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代�
 
 ```bash
 npm run typecheck   # tsc --noEmit，严格模式零错误
-npm run build       # tsc -p tsconfig.build.json → dist/
-npm test            # vitest run，84 个用例
+npm run build       # tsc → dist/（host + Typert 产物），tsdown → dist/client.js（浏览器半区）
+npm test            # vitest run，116 个用例
 ```
 
 测试全部使用临时目录 fixture 与 mock（注入的 `execCmd`、fake pi-ai 流），不访问真实 `~/.pi`，不访问网络。

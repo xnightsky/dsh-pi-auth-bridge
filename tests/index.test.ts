@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { apply, Config, inject, name } from '../src/index.js'
+import type { BridgeStatusBox } from '../src/status.js'
 
 let dir: string
 
@@ -22,6 +23,7 @@ interface Captured {
   registered: { routes: string[]; adapter: unknown }[]
   effects: (() => void)[]
   llm?: object
+  statusBox?: BridgeStatusBox
 }
 
 function fakeCtx(captured: Captured): Context {
@@ -43,6 +45,10 @@ function fakeCtx(captured: Captured): Context {
         }),
     effect: (execute: () => () => void) => {
       captured.effects.push(execute())
+    },
+    // 状态服务由真实 cordis 组合测试（status-service.test.ts）；此处只截获状态盒。
+    plugin: (_service: unknown, arg: unknown) => {
+      captured.statusBox = arg as BridgeStatusBox
     },
   } as unknown as Context
 }
@@ -158,5 +164,32 @@ describe('apply', () => {
     }
     const models = await adapter.listModels('pi/openai')
     expect(models.length).toBeGreaterThan(0)
+  })
+
+  it('fills the status box with the empty reason when the pi directory is missing', () => {
+    const captured = baseCaptured()
+    apply(fakeCtx(captured), Config({ piDir: join(dir, 'no-such-dir') }))
+    expect(captured.statusBox?.current).toMatchObject({ phase: 'empty', reason: 'pi-dir-not-found', routes: [] })
+    expect(captured.statusBox?.current.warnings.join('\n')).toContain('not found')
+  })
+
+  it('fills the status box with llm-missing when the llm service is absent', () => {
+    const captured = baseCaptured(false)
+    writeFileSync(join(dir, 'auth.json'), JSON.stringify({ openai: { type: 'api_key', key: 'sk-1' } }))
+    apply(fakeCtx(captured), Config({ piDir: dir }))
+    expect(captured.statusBox?.current).toMatchObject({ phase: 'empty', reason: 'llm-missing' })
+  })
+
+  it('fills the status box with the bridged snapshot, credentials redacted', () => {
+    const captured = baseCaptured()
+    writeFileSync(join(dir, 'auth.json'), JSON.stringify({ openai: { type: 'api_key', key: 'sk-status-canary' } }))
+    apply(fakeCtx(captured), Config({ piDir: dir }))
+    const status = captured.statusBox?.current
+    expect(status).toMatchObject({
+      phase: 'bridged',
+      piDir: dir,
+      routes: [{ id: 'pi/openai', provider: 'openai', kind: 'builtin', credential: 'api_key', models: 0 }],
+    })
+    expect(JSON.stringify(status)).not.toContain('sk-status-canary')
   })
 })
