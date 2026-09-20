@@ -10,10 +10,10 @@ import type {
   Usage as PiUsage,
 } from '@earendil-works/pi-ai'
 import { MessageId, type ContentBlock, type GenerateOptions, type Message as DshMessage, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import { PiAuthBridgeAdapter } from '../src/adapter.js'
-import type { PiModelsLike } from '../src/provider.js'
-import type { RouteDef } from '../src/convert.js'
-import { createEnvProxyFetch, hasProxyEnv } from '../src/proxy.js'
+import { PiAuthBridgeAdapter } from '../src/bridge/adapter.js'
+import type { PiModelsLike } from '../src/bridge/provider.js'
+import type { RouteDef } from '../src/bridge/convert.js'
+import { createEnvProxyFetch, hasProxyEnv } from '../src/bridge/proxy.js'
 
 /* ------------------------------------------------------------------ */
 /* hasProxyEnv / createEnvProxyFetch                                   */

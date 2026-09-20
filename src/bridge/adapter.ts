@@ -40,7 +40,7 @@ import {
   type LlmResolvedModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { Warn } from './pi-auth.js'
+import type { Warn } from '../pi/auth.js'
 import type { RouteDef } from './convert.js'
 import { buildPiModels, type PiModelsLike } from './provider.js'
 import { toPiContext, toPiContextWithImages, type ImageAttachmentReader } from './request.js'

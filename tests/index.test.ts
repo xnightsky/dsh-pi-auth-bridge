@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { apply, Config, inject, name } from '../src/index.js'
-import type { BridgeStatusBox } from '../src/status.js'
+import type { BridgeStatusBox } from '../src/panel/status.js'
 
 let dir: string
 

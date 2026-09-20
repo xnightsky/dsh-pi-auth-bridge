@@ -4,9 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { apply, inject, PiAuthBridgeSection } from '../src/client/index.js'
-import { bridgedStatus, emptyStatus, probeKey } from '../src/status.js'
-import type { BridgeStatus, ModelProbeReport, ProbeRequest, ProbeResult } from '../src/status.js'
-import type { RouteDef } from '../src/convert.js'
+import { bridgedStatus, emptyStatus, probeKey } from '../src/panel/status.js'
+import type { BridgeStatus, ModelProbeReport, ProbeRequest, ProbeResult } from '../src/panel/status.js'
+import type { RouteDef } from '../src/bridge/convert.js'
 
 afterEach(cleanup)
 

@@ -8,7 +8,7 @@ import {
   readPiAuth,
   readPiModels,
   resolvePiValue,
-} from '../src/pi-auth.js'
+} from '../src/pi/auth.js'
 
 let dir: string
 

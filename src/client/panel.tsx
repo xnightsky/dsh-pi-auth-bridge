@@ -6,7 +6,7 @@
  * @module dsh-pi-auth-bridge/client-panel
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { mergeProbeReport, probeKey, type BridgeModelStatus, type BridgeRouteStatus, type BridgeStatus, type ModelProbeReport, type ProbeCapability, type ProbeRequest, type ProbeResult, type ProbeVerdict } from '../status.js'
+import { mergeProbeReport, probeKey, type BridgeModelStatus, type BridgeRouteStatus, type BridgeStatus, type ModelProbeReport, type ProbeCapability, type ProbeRequest, type ProbeResult, type ProbeVerdict } from '../panel/status.js'
 
 /** 面板的数据拉取面（由入口经 slot inject 注入）。 */
 export interface PiAuthBridgePanelFace {

@@ -7,7 +7,7 @@
  *
  * @module dsh-pi-auth-bridge/status
  */
-import type { RouteDef } from './convert.js'
+import type { RouteDef } from '../bridge/convert.js'
 import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 
 /** 空挂载原因：面板据此向用户解释「为什么没有路由」。 */

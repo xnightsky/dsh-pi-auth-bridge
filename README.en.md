@@ -93,8 +93,8 @@ Once mounted, route names carry the fixed `pi/<providerId>` prefix (e.g. `pi/ope
 locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter → ctx.llm.registerAdapter
 ```
 
-1. **Locate** (`pi-locator.ts`): explicit `piDir` > `$PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`; the directory must contain at least one of `auth.json` / `models.json`.
-2. **Read** (`pi-auth.ts`): missing file → `undefined`; corrupt JSON → `PiAuthBridgeError` with the path (caught at the plugin layer → empty mount + warn); a single invalid entry → skipped + warn.
+1. **Locate** (`pi/locator.ts`): explicit `piDir` > `$PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`; the directory must contain at least one of `auth.json` / `models.json`.
+2. **Read** (`pi/auth.ts`): missing file → `undefined`; corrupt JSON → `PiAuthBridgeError` with the path (caught at the plugin layer → empty mount + warn); a single invalid entry → skipped + warn.
 3. **Convert** (`convert.ts`, pure function):
    - a provider with credentials in `auth.json` → a builtin route (provider metadata delegated to the pi-ai built-in catalog);
    - a custom provider in `models.json` → full-field mapping of `{ api, baseURL, models, headers, authHeader }`;

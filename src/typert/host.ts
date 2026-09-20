@@ -6,7 +6,7 @@
  *
  * @module dsh-pi-auth-bridge/typert.host
  */
-import { probeInvocation, statusInvocation, TYPERT_PACKAGE } from './typert-common.js'
+import { probeInvocation, statusInvocation, TYPERT_PACKAGE } from './common.js'
 
 /** Host 面贡献清单。声明为 unknown：消费方（loader/registry）运行时校验。 */
 export const TYPERT: unknown = {

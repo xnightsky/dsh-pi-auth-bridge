@@ -4,7 +4,7 @@
  *
  * @module dsh-pi-auth-bridge/convert
  */
-import type { PiAuthEntry, PiModelDef, PiModelsFile, PiValueResolver, Warn } from './pi-auth.js'
+import type { PiAuthEntry, PiModelDef, PiModelsFile, PiValueResolver, Warn } from '../pi/auth.js'
 
 /**
  * 路由名固定前缀：每条路由都是 `pi/<providerId>`。dsh web 的模型选择器

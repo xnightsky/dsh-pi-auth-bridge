@@ -33,7 +33,7 @@ import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completio
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
 import { googleGenerativeAIApi } from '@earendil-works/pi-ai/api/google-generative-ai.lazy'
-import type { PiModelDef, Warn } from './pi-auth.js'
+import type { PiModelDef, Warn } from '../pi/auth.js'
 import type { RouteDef } from './convert.js'
 
 /** pi 未标注上下文容量时假定的默认值。 */

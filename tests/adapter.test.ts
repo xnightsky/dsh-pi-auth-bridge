@@ -19,10 +19,10 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all'
 import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
-import { PiAuthBridgeAdapter, type PiAuthBridgeAdapterOptions } from '../src/adapter.js'
-import { buildPiModels, type PiModelsLike } from '../src/provider.js'
-import { toPiContext, type ImageAttachmentReader, type RequestImageVersion } from '../src/request.js'
-import type { RouteDef } from '../src/convert.js'
+import { PiAuthBridgeAdapter, type PiAuthBridgeAdapterOptions } from '../src/bridge/adapter.js'
+import { buildPiModels, type PiModelsLike } from '../src/bridge/provider.js'
+import { toPiContext, type ImageAttachmentReader, type RequestImageVersion } from '../src/bridge/request.js'
+import type { RouteDef } from '../src/bridge/convert.js'
 
 /* ------------------------------------------------------------------ */
 /* Fixtures                                                            */

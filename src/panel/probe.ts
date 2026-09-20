@@ -24,8 +24,8 @@ import {
   type ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { ImageRequestTarget } from '@deepseek-ai/dsh-attachment'
-import type { PiAuthBridgeAdapter } from './adapter.js'
-import type { ImageAttachmentReader } from './request.js'
+import type { PiAuthBridgeAdapter } from '../bridge/adapter.js'
+import type { ImageAttachmentReader } from '../bridge/request.js'
 import type { CapabilityProbeOutcome, ModelProbeReport, ProbeCapability, ProbeRequest, ProbeResult, ProbeVerdict } from './status.js'
 
 /** 文本/图片/工具探测超时（毫秒）。 */

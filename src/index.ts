@@ -26,44 +26,44 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { FetchFunction } from '@earendil-works/pi-ai'
 import z from '@deepseek-ai/schemastery'
-import { locatePiDir } from './pi-locator.js'
-import { createValueResolver, readPiAuth, readPiModels, type Warn } from './pi-auth.js'
-import { buildRoutes } from './convert.js'
-import { PiAuthBridgeAdapter } from './adapter.js'
-import { createEnvProxyFetch } from './proxy.js'
+import { locatePiDir } from './pi/locator.js'
+import { createValueResolver, readPiAuth, readPiModels, type Warn } from './pi/auth.js'
+import { buildRoutes } from './bridge/convert.js'
+import { PiAuthBridgeAdapter } from './bridge/adapter.js'
+import { createEnvProxyFetch } from './bridge/proxy.js'
 import {
   bridgedStatus,
   createStatusBox,
   emptyStatus,
   recordProbeReport,
   recordRequestError,
-} from './status.js'
-import { PiAuthBridgeStatusService } from './status-service.js'
-import { createProbeHandler } from './probe.js'
-import { collectVersions, runSelfChecks } from './self-health.js'
-import { fillModelLists } from './model-list.js'
-import type { ImageAttachmentReader } from './request.js'
+} from './panel/status.js'
+import { PiAuthBridgeStatusService } from './panel/status-service.js'
+import { createProbeHandler } from './panel/probe.js'
+import { collectVersions, runSelfChecks } from './panel/self-health.js'
+import { fillModelLists } from './panel/model-list.js'
+import type { ImageAttachmentReader } from './bridge/request.js'
 
-export { locatePiDir } from './pi-locator.js'
-export { PiAuthBridgeError, createValueResolver, readPiAuth, readPiModels, resolvePiValue } from './pi-auth.js'
-export type { PiAuthEntry, PiModelDef, PiModelsFile, PiProviderDef } from './pi-auth.js'
-export { buildRoutes, PI_ROUTE_PREFIX } from './convert.js'
-export type { RouteDef } from './convert.js'
-export { buildPiModels } from './provider.js'
-export type { BuiltPiModels, PiModelsLike } from './provider.js'
-export { createEnvProxyFetch, hasProxyEnv } from './proxy.js'
-export { toPiContext, toPiContextWithImages } from './request.js'
-export type { ImageAttachmentReader, PiImageSupport, RequestImagePolicy, RequestImageVersion } from './request.js'
-export { mapStopReason, mapUsage, toStreamChunks } from './stream.js'
-export { PiAuthBridgeAdapter } from './adapter.js'
+export { locatePiDir } from './pi/locator.js'
+export { PiAuthBridgeError, createValueResolver, readPiAuth, readPiModels, resolvePiValue } from './pi/auth.js'
+export type { PiAuthEntry, PiModelDef, PiModelsFile, PiProviderDef } from './pi/auth.js'
+export { buildRoutes, PI_ROUTE_PREFIX } from './bridge/convert.js'
+export type { RouteDef } from './bridge/convert.js'
+export { buildPiModels } from './bridge/provider.js'
+export type { BuiltPiModels, PiModelsLike } from './bridge/provider.js'
+export { createEnvProxyFetch, hasProxyEnv } from './bridge/proxy.js'
+export { toPiContext, toPiContextWithImages } from './bridge/request.js'
+export type { ImageAttachmentReader, PiImageSupport, RequestImagePolicy, RequestImageVersion } from './bridge/request.js'
+export { mapStopReason, mapUsage, toStreamChunks } from './bridge/stream.js'
+export { PiAuthBridgeAdapter } from './bridge/adapter.js'
 export {
   bridgedStatus,
   createStatusBox,
   emptyStatus,
   routeStatusOf,
-} from './status.js'
-export type { BridgeEmptyReason, BridgeRouteStatus, BridgeStatus, BridgeStatusBox } from './status.js'
-export { PiAuthBridgeStatusService } from './status-service.js'
+} from './panel/status.js'
+export type { BridgeEmptyReason, BridgeRouteStatus, BridgeStatus, BridgeStatusBox } from './panel/status.js'
+export { PiAuthBridgeStatusService } from './panel/status-service.js'
 
 export const name = 'pi-auth-bridge'
 

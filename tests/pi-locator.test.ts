@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { posix, win32 } from 'node:path'
-import { locatePiDir } from '../src/pi-locator.js'
+import { locatePiDir } from '../src/pi/locator.js'
 
 /** POSIX 拼接器；显式取 `posix.join`，避免在 Windows 上 `path.join` 退化为 win32 语义。 */
 const posixJoin = posix.join

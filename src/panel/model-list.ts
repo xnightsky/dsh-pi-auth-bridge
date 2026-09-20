@@ -6,8 +6,8 @@
  * @module dsh-pi-auth-bridge/model-list
  */
 import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
-import type { PiAuthBridgeAdapter } from './adapter.js'
-import type { Warn } from './pi-auth.js'
+import type { PiAuthBridgeAdapter } from '../bridge/adapter.js'
+import type { Warn } from '../pi/auth.js'
 import { modelListOf, type BridgeModelStatus, type BridgeStatusBox } from './status.js'
 
 /** 异步填充各路由的模型清单；填充期间状态盒已易主（如空挂载）则放弃。 */

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { TypertRegistry } from '@deepseek-ai/dsh-typert-registry'
-import { TYPERT } from '../src/typert.host.js'
-import { TYPERT_REMOTE } from '../src/typert.remote-client.js'
-import { probeInvocation, statusInvocation } from '../src/typert-common.js'
-import { bridgedStatus, emptyStatus } from '../src/status.js'
-import type { RouteDef } from '../src/convert.js'
+import { TYPERT } from '../src/typert/host.js'
+import { TYPERT_REMOTE } from '../src/typert/remote-client.js'
+import { probeInvocation, statusInvocation } from '../src/typert/common.js'
+import { bridgedStatus, emptyStatus } from '../src/panel/status.js'
+import type { RouteDef } from '../src/bridge/convert.js'
 
 const ROUTE: RouteDef = {
   route: 'pi/acme',

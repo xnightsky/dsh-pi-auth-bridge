@@ -29,7 +29,7 @@ export function collectVersions(): BridgeVersions {
   const dshAttachment = depVersion('@deepseek-ai/dsh-attachment')
   const piAi = depVersion('@earendil-works/pi-ai')
   return {
-    plugin: (localRequire('../package.json') as { version: string }).version,
+    plugin: (localRequire('../../package.json') as { version: string }).version,
     ...(dshLlm === undefined ? {} : { dshLlm }),
     ...(dshAttachment === undefined ? {} : { dshAttachment }),
     ...(piAi === undefined ? {} : { piAi }),

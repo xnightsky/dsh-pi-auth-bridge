@@ -65,44 +65,53 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 
 ```
 src/
-  pi-locator.ts   # 跨平台定位 pi 配置目录
-  pi-auth.ts      # auth.json / models.json 类型 + 容错解析 + 取值解析（literal/$ENV/!cmd）
-  convert.ts      # pi → 路由定义转换（纯函数，可单测）
-  provider.ts     # 由 RouteDef 构建 pi-ai Provider/Models（目录复用或 models.json 物化）
-  proxy.ts        # 代理环境变量嗅探 + 注入式代理 fetch（EnvHttpProxyAgent）
-  request.ts      # dsh GenerateOptions → pi-ai Context 的请求转换
-  stream.ts       # pi-ai 事件流 → dsh StreamChunk 的翻译（usage→finish）
-  adapter.ts      # PiAuthBridgeAdapter implements LlmAdapter（组合以上四者）
-  status.ts       # §5 桥状态模型与收集（纯函数，可单测）
-  status-service.ts # §5 TypertRemoteService 子类，@Remote('status') 暴露快照
-  typert-common.ts  # §5 Typert 产物共享段（zod 投影 + status 描述符）
-  typert.host.ts    # §5 Host 面 TYPERT 清单（手写产物，原因见 §5.3）
-  typert.remote-client.ts # §5 Host-for-Client Remote 投影（含命名空间类型合并）
-  client/index.tsx  # §5 浏览器半区：settings.section 状态面板
-  index.ts        # cordis 插件入口
+  pi/               # pi 侧读取（无内部依赖）
+    locator.ts      # 跨平台定位 pi 配置目录
+    auth.ts         # auth.json / models.json 类型 + 容错解析 + 取值解析（literal/$ENV/!cmd）
+  bridge/           # 桥核心：dsh ↔ pi-ai 的转换与适配（依赖 pi/）
+    convert.ts      # pi → 路由定义转换（纯函数，可单测）
+    provider.ts     # 由 RouteDef 构建 pi-ai Provider/Models（目录复用或 models.json 物化）
+    proxy.ts        # 代理环境变量嗅探 + 注入式代理 fetch（EnvHttpProxyAgent）
+    request.ts      # dsh GenerateOptions → pi-ai Context 的请求转换
+    stream.ts       # pi-ai 事件流 → dsh StreamChunk 的翻译（usage→finish）
+    adapter.ts      # PiAuthBridgeAdapter implements LlmAdapter（组合以上四者）
+  panel/            # 面板 host 数据面（§5，依赖 bridge/ 与 pi/）
+    status.ts       # 桥状态模型与收集（纯函数，可单测）
+    status-service.ts # TypertRemoteService 子类，@Remote('status'/'probe') 暴露
+    probe.ts        # 能力探测矩阵（模型×能力，走本桥完整管线，§5.7）
+    self-health.ts  # 插件自健康：版本表 + 启动自检（§5.8）
+    model-list.ts   # 模型清单异步填充（本地目录读取）
+  typert/           # Typert 手写产物（§5.3）
+    common.ts       # 共享段：zod 投影 + status/probe 调用描述符
+    host.ts         # Host 面 TYPERT 清单
+    remote-client.ts # Host-for-Client Remote 投影（含命名空间类型合并）
+  client/           # 浏览器半区
+    index.tsx       # 入口：$mount + settings.section 接线
+    panel.tsx       # Settings 区块呈现层
+  index.ts          # cordis 插件入口（纯组合根）
 tests/            # vitest
 README.md         # 中文为主，附 English 摘要
 ```
 
-### 2.1 pi-locator.ts
+### 2.1 pi/locator.ts
 - `locatePiDir(opts: { piDir?: string; env?: NodeJS.ProcessEnv; homedir?: () => string }): string | undefined`
 - 优先级：显式 `piDir` > `env.PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`
 - 存在性校验（`auth.json`/`models.json` 至少其一存在才算有效），返回 `undefined` 表示未找到
 - 纯函数注入 env/homedir，便于 Windows/Linux 双平台单测（用 win32 风格路径样本测拼接逻辑）
 
-### 2.2 pi-auth.ts
+### 2.2 pi/auth.ts
 - 类型：`PiAuthEntry = {type:'api_key',key:string} | {type:'oauth',access:string,refresh?:string,expires?:number}`
 - `readPiAuth(dir)`, `readPiModels(dir)`：文件不存在 → `undefined`；JSON 损坏 → 抛带路径信息的 `PiAuthBridgeError`；条目形态非法 → 跳过该条并 warn（不整体失败）
 - `resolvePiValue(raw, {env, execCmd}): string | undefined`：实现 `$ENV` / `!cmd` / 字面量三态；`!cmd` 带超时（默认 10s）与内存缓存；失败返回 `undefined` 并 warn
 
-### 2.3 convert.ts
+### 2.3 bridge/convert.ts
 - `buildRoutes(auth, models, opts): RouteDef[]`
 - 对每个 `auth.json` 里有凭据的 provider：生成路由（provider 元数据交给 pi-ai 内置目录）
 - 对每个 `models.json` 自定义 provider：生成路由 `{ api, baseURL, models, headers, authHeader }`，apiKey 解析顺序 = auth.json 同名片 > models.json `apiKey` 字段
 - `oauth` 条目：`access` 未过期 → 当 apiKey 用；已过期且有 `refresh` → 交给 pi-ai 的 OAuth 刷新机制（内存态，**不回写**）；都不行的跳过并 warn。注意刷新机制只存在于 pi-ai 目录 provider：自定义 provider 持有过期 OAuth（无 apiKey）时在 adapter 构建期跳过并 warn（见 §2.4），否则会产生一条必然 401 的死路由
 - `opts.providers?: string[]` 白名单过滤；路由名**固定** `pi/<providerId>` 前缀（`PI_ROUTE_PREFIX`，不可配——避免与 dsh 原生及其他适配器路由撞名）；`displayName` 恒为 `Pi · <名称>`（custom 用其 `name`，builtin 用 provider id）——dsh web 选择器没有三级「渠道」结构，PI 出处只能由路由 id 前缀与分组标题共同表达（见 §0 末条）
 
-### 2.4 adapter.ts（组合 provider.ts / request.ts / stream.ts）
+### 2.4 bridge/adapter.ts（组合 provider.ts / request.ts / stream.ts）
 - `class PiAuthBridgeAdapter extends LlmAdapter`：构造时接收冻结的 `RouteDef[]` 与 pi-ai `Models` 集合（`createModels` 构建，凭据经内存 CredentialStore/AuthContext 注入，或在每次 stream 调用以 `apiKey` override 传入——以 pi-ai 实际 API 为准，参照 llm-pi-ai 的做法）
 - 遵守第 0 节全部协议义务；图片附件经构造选项 `resolveAttachments`（index.ts 接线 `ctx.get('attachments')`）支持：模型声明 image 输入时按 §0「图片附件支持」转换；模型不支持或服务缺失 → 抛 `UNSUPPORTED_CONTENT`
 - 凭据只存在于内存：不写 dsh 凭据存储、不写任何文件、不调用 `ctx.credentials.set`
@@ -113,7 +122,7 @@ README.md         # 中文为主，附 English 摘要
 - 自定义 provider（不在 pi-ai 目录）只持过期 OAuth 时：构建期跳过并 warn（pi-ai 的 OAuth 刷新机制只存在于目录 provider）
 - 代理注入：构造选项 `proxyFetch?: FetchFunction`（由 index.ts 按 §2.5 嗅探构造）；`stream()` 时除 `google-generative-ai`/`google-vertex`（pi-ai 拒绝自定义 fetch）外注入为 `SimpleStreamOptions.fetch`；google 路由每路由 warn 一次提示用 `NODE_USE_ENV_PROXY=1` 兜底
 
-### 2.5 proxy.ts（代理环境变量嗅探与注入式代理 fetch）
+### 2.5 bridge/proxy.ts（代理环境变量嗅探与注入式代理 fetch）
 - 问题：dsh 进程不做 pi CLI 的 `configureHttpDispatcher()` 全局补丁，pi-ai 也不读代理变量，桥接出的请求会裸连（见 §0 末两条）。桥必须在**不触碰全局状态**的前提下补上这一环。
 - `hasProxyEnv(env = process.env): boolean`：是否配置了代理。认 `http_proxy`/`https_proxy`/`all_proxy` 及其大写形式；空串视为未设置；仅设 `no_proxy` 不算配置代理。
 - `createEnvProxyFetch(env = process.env): FetchFunction | undefined`：无代理变量 → `undefined`（不注入，行为与之前一致）；否则用 `undici` 的 `EnvHttpProxyAgent` 构造一个带 dispatcher 的 fetch 返回。dispatcher 参数对齐 pi CLI：`allowH2: false, proxyTunnel: true`；代理地址与 `no_proxy` 从传入 env 显式映射（`all_proxy` 作 http/https 的兜底），未显式给出的项由 undici 回落 `process.env`（生产路径传入的即 `process.env`，语义一致）。
@@ -178,9 +187,9 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 ### 5.3 构建链与产物来源（手写 Typert 产物）
 - **关键决策：Typert 产物手写，不跑官方生成器。** `@deepseek-ai/dsh-typert-generator` 的发现逻辑绑定 monorepo 布局——workspace 根必须有 `tsconfig.host.json`，且包必须位于 `<root>/packages/` 下（0.1.6-alpha.2 源码实证，`loadRegistrations` 的 `isWithin(realPath(packageRoot), join(root, 'packages'))` 过滤）；本仓是独立单包仓库，无法被其发现。
 - 产物改为手写源码，三重防漂移：① 类型锚定协议包公开类型（`InvocationDescriptor` / `TypertRemoteContribution` / `TypertRemoteNamespaceMap` 合并，typecheck 拦截格式漂移）；② `tests/typert-artifacts.test.ts` 把 TYPERT 注册进真实 `@deepseek-ai/dsh-typert-registry` 并用全部真实快照 round-trip 严格编解码；③ 结构逐项对齐 `dsh-typert-loader` 的 validateTypertManifest 校验。
-- `tsc -p tsconfig.build.json` → `dist/`：host 半区 + Typert 产物（`src/typert-common.ts` / `src/typert.host.ts` / `src/typert.remote-client.ts`，产物即源码，随包发布）。
+- `tsc -p tsconfig.build.json` → `dist/`：host 半区 + Typert 产物（`src/typert/common.ts` / `src/typert/host.ts` / `src/typert/remote-client.ts`，产物即源码，随包发布）。
 - `tsdown` 只打浏览器半区 `dist/client.js`：CJS + `window.__ModuleLoader__.load` 包装（对齐官方 client 产物形态）；react 外部化（宿主模块加载器提供），zod 与 Typert 共享段内联（官方产物同样内联 zod）。
-- `package.json`：exports 增加 `./client` → `dist/client.js`（types 指向 tsc 产的 `dist/client/index.d.ts`）、`./typert` → `dist/typert.host.*`、`./remote` → `dist/typert.remote-client.*`；`dsh.client = { inject: ['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-renderer'], platform: 'web' }`。
+- `package.json`：exports 增加 `./client` → `dist/client.js`（types 指向 tsc 产的 `dist/client/index.d.ts`）、`./typert` → `dist/typert/host.*`、`./remote` → `dist/typert/remote-client.*`；`dsh.client = { inject: ['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-renderer'], platform: 'web' }`。
 - 宿主侧零配置：`dsh-typert-loader` 自动发现 `./typert` 并注册；bundle 安装路径不变。
 
 ### 5.4 client 面板（client/index.tsx）

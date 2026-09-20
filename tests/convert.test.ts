@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildRoutes } from '../src/convert.js'
-import type { PiAuthEntry, PiModelsFile } from '../src/pi-auth.js'
+import { buildRoutes } from '../src/bridge/convert.js'
+import type { PiAuthEntry, PiModelsFile } from '../src/pi/auth.js'
 
 const NOW = 1_800_000_000_000
 

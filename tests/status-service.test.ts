@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { PiAuthBridgeStatusService } from '../src/status-service.js'
-import { bridgedStatus, createStatusBox, emptyStatus } from '../src/status.js'
-import type { RouteDef } from '../src/convert.js'
+import { PiAuthBridgeStatusService } from '../src/panel/status-service.js'
+import { bridgedStatus, createStatusBox, emptyStatus } from '../src/panel/status.js'
+import type { RouteDef } from '../src/bridge/convert.js'
 
 const ROUTE: RouteDef = {
   route: 'pi/acme',

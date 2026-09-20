@@ -8,8 +8,8 @@ import {
   routeStatusOf,
   type BridgeStatus,
   type ModelProbeReport,
-} from '../src/status.js'
-import type { RouteDef } from '../src/convert.js'
+} from '../src/panel/status.js'
+import type { RouteDef } from '../src/bridge/convert.js'
 import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 
 function route(overrides: Partial<RouteDef> = {}): RouteDef {

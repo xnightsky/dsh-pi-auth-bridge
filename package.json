@@ -16,12 +16,12 @@
       "default": "./dist/client.js"
     },
     "./typert": {
-      "types": "./dist/typert.host.d.ts",
-      "default": "./dist/typert.host.js"
+      "types": "./dist/typert/host.d.ts",
+      "default": "./dist/typert/host.js"
     },
     "./remote": {
-      "types": "./dist/typert.remote-client.d.ts",
-      "default": "./dist/typert.remote-client.js"
+      "types": "./dist/typert/remote-client.d.ts",
+      "default": "./dist/typert/remote-client.js"
     },
     "./package.json": "./package.json"
   },

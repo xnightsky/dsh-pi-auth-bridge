@@ -7,8 +7,8 @@
  * @module dsh-pi-auth-bridge/typert.remote-client
  */
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
-import type { BridgeStatus, ProbeRequest, ProbeResult } from './status.js'
-import { probeInvocation, statusInvocation, TYPERT_PACKAGE } from './typert-common.js'
+import type { BridgeStatus, ProbeRequest, ProbeResult } from '../panel/status.js'
+import { probeInvocation, statusInvocation, TYPERT_PACKAGE } from './common.js'
 
 /** `piAuthBridge` 命名空间的类型化方法表。 */
 export interface PiAuthBridgeRemoteNamespace {

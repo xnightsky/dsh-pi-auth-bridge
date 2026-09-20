@@ -11,8 +11,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-gateway/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { TYPERT_REMOTE } from '../typert.remote-client.js'
-import type { BridgeStatus, ProbeRequest, ProbeResult } from '../status.js'
+import { TYPERT_REMOTE } from '../typert/remote-client.js'
+import type { BridgeStatus, ProbeRequest, ProbeResult } from '../panel/status.js'
 import { PiAuthBridgeSection, type PiAuthBridgePanelFace } from './panel.js'
 
 /** Client 半区所需服务：slot 注册表与 Remote 装配面。 */

@@ -93,8 +93,8 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或
 locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter → ctx.llm.registerAdapter
 ```
 
-1. **定位**（`pi-locator.ts`）：显式 `piDir` > `$PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`；目录须含 `auth.json` 或 `models.json` 至少其一。
-2. **读取**（`pi-auth.ts`）：文件缺失 → `undefined`；JSON 损坏 → 带路径的 `PiAuthBridgeError`（插件层捕获后空挂载 + warn）；单条非法条目 → 跳过 + warn。
+1. **定位**（`pi/locator.ts`）：显式 `piDir` > `$PI_CODING_AGENT_DIR` > `homedir()/.pi/agent`；目录须含 `auth.json` 或 `models.json` 至少其一。
+2. **读取**（`pi/auth.ts`）：文件缺失 → `undefined`；JSON 损坏 → 带路径的 `PiAuthBridgeError`（插件层捕获后空挂载 + warn）；单条非法条目 → 跳过 + warn。
 3. **转换**（`convert.ts`，纯函数）：
    - `auth.json` 中有凭据的 provider → 内置路由（provider 元数据交给 pi-ai 内置目录）；
    - `models.json` 中的自定义 provider → `{ api, baseURL, models, headers, authHeader }` 全字段映射；

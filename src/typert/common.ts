@@ -113,7 +113,7 @@ export const statusInvocation: InvocationDescriptor = {
     typeSymbol: 'dsh-pi-auth-bridge#BridgeStatus',
     create: () => bridgeStatusSchema,
   },
-  sourceLocation: { file: 'src/status-service.ts', line: 38, column: 3 },
+  sourceLocation: { file: 'src/panel/status-service.ts', line: 38, column: 3 },
 }
 
 /** `piAuthBridge/probe` 调用描述符：单参数（JSON request）、直接接收者、严格编解码。 */
@@ -140,5 +140,5 @@ export const probeInvocation: InvocationDescriptor = {
     typeSymbol: 'dsh-pi-auth-bridge#ProbeResult',
     create: () => probeResultSchema,
   },
-  sourceLocation: { file: 'src/status-service.ts', line: 50, column: 3 },
+  sourceLocation: { file: 'src/panel/status-service.ts', line: 50, column: 3 },
 }
