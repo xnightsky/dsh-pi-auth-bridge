@@ -38,7 +38,7 @@ export function collectVersions(): BridgeVersions {
 
 /**
  * 启动自检（本地契约检查，无网络）：逐项回归「升级后桥整个炸掉」的历史
- * 故障面——dsh-llm 归因头契约、dsh-attachment 0.1.6 的 target 换算契约
+ * 故障面——dsh-llm 归因头契约、dsh-attachment 0.2.1 的 target 换算契约
  * （2026-09-19 事故）、图片请求前提（附件服务已挂载）。
  */
 export function runSelfChecks(ctx: Context): BridgeSelfCheck[] {

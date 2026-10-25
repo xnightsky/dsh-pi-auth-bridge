@@ -111,7 +111,18 @@ function dshMessage(role: DshMessage['role'], content: ContentBlock[], source?: 
     role,
     content,
     source: source ?? (role === 'assistant' ? { kind: 'model', provider: 'openai', model: 'test-model' } : { kind: 'user' }),
-  }
+  } as DshMessage
+}
+
+function dshToolResult(content: ContentBlock[], toolCallId = 'call_1'): DshMessage {
+  messageSeq += 1
+  return {
+    id: MessageId(`m${messageSeq}`),
+    role: 'tool',
+    content,
+    source: { kind: 'tool', callId: toolCallId as never },
+    toolCallId: toolCallId as never,
+  } as DshMessage
 }
 
 function genOptions(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
@@ -390,9 +401,7 @@ describe('PiAuthBridgeAdapter request plumbing', () => {
           { type: 'text', text: 'checking' },
           { type: 'tool-call', id: 'call_1' as ContentBlock extends never ? never : never, name: 'get_weather', arguments: '{"city":"Paris"}' } as unknown as ContentBlock,
         ]),
-        dshMessage('user', [
-          { type: 'tool-result', toolCallId: 'call_1', content: [{ type: 'text', text: 'sunny' }] } as unknown as ContentBlock,
-        ], { kind: 'tool', callId: 'call_1' as never } as DshMessage['source']),
+        dshToolResult([{ type: 'text', text: 'sunny' }]),
       ],
       tools: [{ name: 'get_weather', description: 'Get weather', parameters: { type: 'object' } }],
     }))
@@ -408,12 +417,92 @@ describe('PiAuthBridgeAdapter request plumbing', () => {
     expect(context.tools).toHaveLength(1)
   })
 
-  it('flattens a system-role history message into a user message', () => {
+  it('merges leading system history with the request system prompt', () => {
     const context = toPiContext(genOptions({
-      messages: [dshMessage('system', [{ type: 'text', text: 'context snapshot' }], { kind: 'plugin', plugin: 'test' } as DshMessage['source'])],
+      system: 'base prompt',
+      messages: [
+        dshMessage('system', [{ type: 'text', text: 'context snapshot' }], { kind: 'system-prompt' }),
+        dshMessage('user', [{ type: 'text', text: 'after system' }]),
+      ],
     }))
-    expect(context.messages).toEqual([{ role: 'user', content: 'context snapshot', timestamp: 0 }])
+    expect(context.systemPrompt).toBe('base prompt\n\ncontext snapshot')
+    expect(context.messages).toEqual([{ role: 'user', content: 'after system', timestamp: 0 }])
   })
+  it('converts developer tool updates into pi-ai system updates', () => {
+    const context = toPiContext(genOptions({
+      messages: [dshMessage('developer', [
+        { type: 'text', text: 'tool update' },
+        { type: 'tool-addition', toolName: 'alpha' },
+        { type: 'tool-removal', toolName: 'beta' },
+      ])],
+      tools: [
+        { name: 'alpha', description: 'Alpha', parameters: { type: 'object' } },
+        { name: 'beta', description: 'Beta', parameters: { type: 'object' } },
+      ],
+    }))
+    expect(context.messages).toHaveLength(1)
+    expect(context.messages[0]).toMatchObject({
+      role: 'system',
+      toolsAdded: [{ name: 'alpha', description: 'Alpha' }],
+      toolsRemoved: [{ name: 'beta' }],
+    })
+  })
+
+  it('omits deferred tools from the initial pi-ai declarations', () => {
+    const context = toPiContext(genOptions({
+      tools: [
+        { name: 'immediate', description: 'Immediate', parameters: { type: 'object' } },
+        { name: 'deferred', description: 'Deferred', parameters: { type: 'object' }, deferLoading: true },
+      ],
+    }))
+    expect(context.tools?.map((tool) => tool.name)).toEqual(['immediate'])
+  })
+
+  it('advertises model-supported system and tool update modes', async () => {
+    const { adapter } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      {},
+      {
+        api: 'anthropic-messages',
+        compat: {
+          supportsMidConvoSystemMessages: true,
+          supportsMidConvoToolChanges: true,
+        } as NonNullable<Model<Api>['compat']>,
+      },
+    )
+    await expect(adapter.resolveModel('openai', 'test-model')).resolves.toMatchObject({
+      systemPromptUpdate: 'in-history',
+      toolUpdate: 'in-history',
+    })
+  })
+
+  it('keeps an Anthropic placeholder when every tool declaration is deferred', async () => {
+    const { adapter, fake } = makeAdapter(
+      [{ type: 'done', reason: 'stop', message: piAssistant() }],
+      {},
+      {
+        api: 'anthropic-messages',
+        compat: {
+          supportsMidConvoSystemMessages: true,
+          supportsMidConvoToolChanges: true,
+        } as NonNullable<Model<Api>['compat']>,
+      },
+    )
+    await collect(adapter.stream(genOptions({
+      messages: [dshMessage('developer', [{ type: 'tool-addition', toolName: 'deferred' }])],
+      tools: [{ name: 'deferred', description: 'Deferred', parameters: { type: 'object' }, deferLoading: true }],
+    })))
+    expect(fake.captured?.context.tools?.map((tool) => tool.name)).toEqual(['DeferredToolPlaceholder'])
+    expect(fake.captured?.context.messages[0]).toMatchObject({ toolsAdded: [{ name: 'deferred' }] })
+  })
+
+  it('rejects tool-change blocks outside developer messages', () => {
+    expect(() => toPiContext(genOptions({
+      messages: [dshMessage('user', [{ type: 'tool-addition', toolName: 'alpha' }])],
+      tools: [{ name: 'alpha', description: 'Alpha', parameters: { type: 'object' } }],
+    }))).toThrow('Tool-change blocks require developer role')
+  })
+
 })
 
 /* ------------------------------------------------------------------ */
@@ -452,9 +541,7 @@ describe('PiAuthBridgeAdapter image conversion', () => {
         dshMessage('assistant', [
           { type: 'tool-call', id: 'call_1', name: 'read_media', arguments: '{}' } as unknown as ContentBlock,
         ]),
-        dshMessage('user', [
-          { type: 'tool-result', toolCallId: 'call_1', content: [{ type: 'text', text: '<path>x.png</path>' }, imageBlock()] } as unknown as ContentBlock,
-        ], { kind: 'tool', callId: 'call_1' as never } as DshMessage['source']),
+        dshToolResult([{ type: 'text', text: '<path>x.png</path>' }, imageBlock()]),
       ],
     })))
     const toolResult = fake.captured?.context.messages[1]
@@ -476,6 +563,15 @@ describe('PiAuthBridgeAdapter image conversion', () => {
     // "Image request width must be a positive integer."，带图请求全灭
     expect(reader.calls).toHaveLength(1)
     expect(reader.calls[0]?.target).toEqual({ ...requestImageDimensions(4000, 3000, 4_194_304), maxBytes: 1_048_576 })
+  })
+
+  it('reports the same resized image target through the adapter contract', () => {
+    const { adapter } = makeAdapter([{ type: 'done', reason: 'stop', message: piAssistant() }])
+    const image = imageBlock('big', { width: 4000, height: 3000 }) as Extract<ContentBlock, { type: 'image' }>
+    expect(adapter.imageRequestTarget('openai', 'test-model', image.attachment)).toEqual({
+      ...requestImageDimensions(4000, 3000, 4_194_304),
+      maxBytes: 1_048_576,
+    })
   })
 
   it('keeps source dimensions in the target for images within the pixel budget', async () => {

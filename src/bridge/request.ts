@@ -4,16 +4,16 @@
  * 不变量：
  * - 除注入的附件读取器外无 I/O；文本路径（toPiContext）保持同步纯函数。
  * - 图片只在拿到 dsh 持久附件服务时转换：durable 引用经 `readImageRequest`
- *   生成请求版本后以 base64 内联为 pi-ai image 块；缺服务或非 user 角色携带
+ *   生成请求版本后以 base64 内联为 pi-ai image 块；缺服务或非 user/tool 角色携带
  *   图片时显式抛 `UNSUPPORTED_CONTENT`，绝不静默丢弃。
- * - dsh-attachment 0.1.6 契约：`readImageRequest` 的 target 是逐附件的
+ * - dsh-attachment 0.2.1 契约：`readImageRequest` 的 target 是逐附件的
  *   `{width, height, maxBytes}`（由 `requestImageDimensions` 按像素预算换算），
  *   宿主 `validateTarget` 校验正整数——传 `{maxPixels, maxBytes}` 会直接抛错。
  * - 请求级图片字节超预算时不自行卸载：以真实版本字节经 `requiredImageOffload`
  *   计量，抛 `LlmError(IMAGE_OFFLOAD_REQUIRED, { offloadImages })` 由宿主把最老
  *   N 处标记 `offloaded` 后重试；已卸载块经 `projectOffloadedImages` 投影为占位文本。
- * - 历史消息中 role 为 `system` 的消息降级拼平为 user 消息——pi-ai Context
- *   只有一个 systemPrompt 槽位，由 `options.system` 占用；降级保持消息顺序。
+ * - 开头 system 历史与 options.system 合并；后续 system 与 developer 工具更新
+ *   映射为 pi-ai 原生 system 消息，tool 角色映射为 toolResult，保持消息顺序。
  * - 工具调用 arguments 在 pi-ai 历史里是解析后的对象；模型产生的畸形 JSON
  *   容忍为 `{}`，不让历史转换拖垮请求。
  *
@@ -29,8 +29,7 @@ import {
   requiredImageOffload,
   type ContentBlock,
   type GenerateOptions,
-  type Message as DshMessage,
-  type ToolResultBlock,
+  type RequestMessage as DshMessage,
 } from '@deepseek-ai/dsh-llm'
 import { requestImageDimensions, type ImageRequestTarget } from '@deepseek-ai/dsh-attachment'
 import type {
@@ -39,6 +38,7 @@ import type {
   ImageContent as PiImageContent,
   Message as PiMessage,
   TextContent as PiTextContent,
+  JsonObject,
   Usage as PiUsage,
 } from '@earendil-works/pi-ai'
 
@@ -84,11 +84,11 @@ const DEFAULT_REQUEST_IMAGE_POLICY: RequestImagePolicy = { maxPixels: 4_194_304,
 const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 20_971_520
 
 /** 解析工具调用参数 JSON；容忍模型产出的畸形 JSON，回退为 {}。 */
-function parseArguments(raw: string): Record<string, unknown> {
+function parseArguments(raw: string): JsonObject {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>
+      return parsed as JsonObject
     }
   } catch {
     /* fall through */
@@ -139,15 +139,6 @@ function toPiUserContent(blocks: readonly ContentBlock[], images: ImageVersions 
       case 'image':
         content.push(...toPiImage(block, images))
         break
-      case 'tool-result': {
-        const nested = toPiUserContent(block.content, images)
-        if (typeof nested === 'string') {
-          if (nested.length > 0) content.push({ type: 'text', text: nested })
-        } else {
-          content.push(...nested)
-        }
-        break
-      }
       default:
         break
     }
@@ -157,7 +148,7 @@ function toPiUserContent(blocks: readonly ContentBlock[], images: ImageVersions 
 }
 
 /** 把一条 dsh assistant 消息转换为 provider 中立的 pi-ai 历史消息。 */
-function toPiAssistant(message: DshMessage): PiAssistantMessage {
+function toPiAssistant(message: Extract<DshMessage, { role: 'assistant' }>): PiAssistantMessage {
   const source = message.source.kind === 'model' ? message.source : undefined
   const content: PiAssistantMessage['content'] = []
   for (const block of message.content) {
@@ -187,15 +178,73 @@ function toPiAssistant(message: DshMessage): PiAssistantMessage {
   }
 }
 
+/** 合并请求级系统提示与开头 system 历史；后续 system 保留在历史顺序中。 */
+function splitLeadingSystem(options: GenerateOptions): GenerateOptions {
+  const prompts = [options.system]
+  let end = 0
+  for (const message of options.messages) {
+    if (message.role !== 'system') break
+    prompts.push(flattenText(message))
+    end += 1
+  }
+  const system = prompts.filter(Boolean).join('\n\n')
+  const { system: _system, ...rest } = options
+  return { ...rest, messages: options.messages.slice(end), ...(system ? { system } : {}) }
+}
+
+/** 去除 dsh 工具声明的宿主控制字段。 */
+function piTool(tool: NonNullable<GenerateOptions['tools']>[number]) {
+  return { name: tool.name, description: tool.description, parameters: tool.parameters }
+}
+
+/** 把一条 developer 消息映射为 pi-ai 的原生 system update。 */
+function appendDeveloper(message: Extract<DshMessage, { role: 'developer' }>, options: GenerateOptions, messages: PiMessage[]): void {
+  const content: PiTextContent[] = []
+  const toolsAdded: ReturnType<typeof piTool>[] = []
+  const toolsRemoved: { name: string }[] = []
+  for (const block of message.content) {
+    switch (block.type) {
+      case 'text':
+        if (block.text.length > 0) content.push({ type: 'text', text: block.text })
+        break
+      case 'tool-addition': {
+        const tool = options.tools?.find((candidate) => candidate.name === block.toolName)
+        if (tool === undefined) throw new LlmError(`pi-auth-bridge tool update references undeclared tool "${block.toolName}"`, 'INVALID_REQUEST')
+        toolsAdded.push(piTool(tool))
+        break
+      }
+      case 'tool-removal':
+        toolsRemoved.push({ name: block.toolName })
+        break
+      default:
+        throw new LlmError(`pi-auth-bridge cannot represent developer content ${block.type}`, 'UNSUPPORTED_CONTENT')
+    }
+  }
+  if (content.length === 0 && toolsAdded.length === 0 && toolsRemoved.length === 0) return
+  messages.push({
+    role: 'system',
+    content,
+    timestamp: 0,
+    ...(toolsAdded.length > 0 ? { toolsAdded } : {}),
+    ...(toolsRemoved.length > 0 ? { toolsRemoved } : {}),
+  })
+}
+
 /** 消息循环主体：images 为 undefined 时任何图片块都在 toPiImage 处显式抛错。 */
 function buildMessages(options: GenerateOptions, images: ImageVersions | undefined): PiMessage[] {
   const toolNames = new Map<string, string>()
   const messages: PiMessage[] = []
   for (const message of options.messages) {
     if (message.role === 'system') {
-      messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
+      const content = flattenText(message)
+      if (content.length > 0) messages.push({ role: 'system', content, timestamp: 0 })
       continue
     }
+    if (message.role === 'developer') {
+      appendDeveloper(message, options, messages)
+      continue
+    }
+
     if (message.role === 'assistant') {
       const assistant = toPiAssistant(message)
       for (const block of assistant.content) {
@@ -204,33 +253,27 @@ function buildMessages(options: GenerateOptions, images: ImageVersions | undefin
       messages.push(assistant)
       continue
     }
-    const content = toPiUserContent(message.content.filter((block) => block.type !== 'tool-result'), images)
-    const results = message.content.filter((block): block is ToolResultBlock => block.type === 'tool-result')
-    if (content.length > 0 || results.length === 0) {
-      messages.push({ role: 'user', content, timestamp: 0 })
-    }
-    for (const result of results) {
-      const resultContent = toPiUserContent(result.content, images)
+    if (message.role === 'tool') {
+      const resultContent = toPiUserContent(message.content, images)
       messages.push({
         role: 'toolResult',
-        toolCallId: result.toolCallId,
-        toolName: toolNames.get(result.toolCallId) ?? 'unknown',
+        toolCallId: message.toolCallId,
+        toolName: toolNames.get(message.toolCallId) ?? 'unknown',
         content: typeof resultContent === 'string' ? [{ type: 'text', text: resultContent || '(no output)' }] : resultContent,
-        isError: result.isError ?? false,
+        isError: message.isError ?? false,
         timestamp: 0,
       })
+      continue
     }
+    const content = toPiUserContent(message.content, images)
+    messages.push({ role: 'user', content, timestamp: 0 })
   }
   return messages
 }
 
 /** 组装 pi-ai Context 信封（systemPrompt + messages + tools）。 */
 function piContext(options: GenerateOptions, messages: PiMessage[]): PiContext {
-  const tools = options.tools?.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters,
-  }))
+  const tools = options.tools?.filter((tool) => tool.deferLoading !== true).map(piTool)
   return {
     ...(options.system !== undefined ? { systemPrompt: options.system } : {}),
     messages,
@@ -238,26 +281,27 @@ function piContext(options: GenerateOptions, messages: PiMessage[]): PiContext {
   }
 }
 
-/** pi-ai 只能回放 user 角色里的图片；其他角色携带图片提前显式拒绝。 */
-function assertSupportedImageRoles(messages: readonly DshMessage[]): void {
+/** 拒绝工具更新错位及 pi-ai 无法表示的图片角色，禁止静默丢块。 */
+function assertSupportedHistory(messages: readonly DshMessage[]): void {
   for (const message of messages) {
-    if (message.role !== 'user' && contentHasImage(message.content)) {
+    if (message.role !== 'developer' && message.content.some((block) => block.type === 'tool-addition' || block.type === 'tool-removal')) {
+      throw new LlmError('Tool-change blocks require developer role', 'UNSUPPORTED_CONTENT')
+    }
+    if (message.role !== 'user' && message.role !== 'tool' && contentHasImage(message.content)) {
       throw new LlmError(`pi-auth-bridge cannot represent an image in an in-history ${message.role} message`, 'UNSUPPORTED_CONTENT')
     }
   }
 }
 
-/** 收集全部保留图片的引用（按首次出现去重，顺序稳定；tool result 的内容会嵌套；宿主已卸载的块不取字节）。 */
+/** 收集全部保留图片的引用（按首次出现去重，顺序稳定；宿主已卸载的块不取字节）。 */
 function collectImageRefs(blocks: readonly ContentBlock[], refs: Map<string, ImageRef>): void {
   for (const block of blocks) {
-    if (block.type === 'image') {
-      if (block.offloaded !== true) refs.set(block.attachment.attachmentId, block.attachment)
-    } else if (block.type === 'tool-result') collectImageRefs(block.content, refs)
+    if (block.type === 'image' && block.offloaded !== true) refs.set(block.attachment.attachmentId, block.attachment)
   }
 }
 
-/** 按 ref 各自尺寸把像素预算换算成 dsh-attachment 0.1.6 要求的请求 target；小图不放大。 */
-function requestImageTarget(ref: ImageRef, policy: RequestImagePolicy): ImageRequestTarget {
+/** 按 ref 各自尺寸换算实际请求 target；小图不放大，适配器与附件读取共用。 */
+export function requestImageTarget(ref: ImageRef, policy: RequestImagePolicy = DEFAULT_REQUEST_IMAGE_POLICY): ImageRequestTarget {
   return { ...requestImageDimensions(ref.width, ref.height, policy.maxPixels), maxBytes: policy.maxBytes }
 }
 
@@ -280,27 +324,30 @@ async function prepareRequestImages(
  * 含图片时必须走 {@link toPiContextWithImages}；直接调用会显式抛错而非静默丢图。
  */
 export function toPiContext(options: GenerateOptions): PiContext {
+  assertSupportedHistory(options.messages)
   for (const message of options.messages) {
     if (contentHasImage(message.content)) {
       throw new LlmError('pi-auth-bridge image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
   }
-  return piContext(options, buildMessages(options, undefined))
+  const split = splitLeadingSystem(options)
+  return piContext(split, buildMessages(split, undefined))
 }
 
 /**
  * 把一个含图片的 dsh 请求转换为 pi-ai 的 Context 词汇。持久引用经附件服务
  * 生成请求版本（默认 2048×2048 / 1 MiB 投影）后以 base64 内联；请求级总量
- * 超预算时抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主标记卸载后重试（dsh-llm 0.1.6
+ * 超预算时抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主标记卸载后重试（dsh-llm 0.2.1
  * 契约，路由不自行卸载）；已卸载块投影为稳定的占位文本。
  */
 export async function toPiContextWithImages(options: GenerateOptions, images: PiImageSupport): Promise<PiContext> {
-  assertSupportedImageRoles(options.messages)
+  const split = splitLeadingSystem(options)
+  assertSupportedHistory(split.messages)
   const policy = images.requestImagePolicy ?? DEFAULT_REQUEST_IMAGE_POLICY
   const maxBytes = images.maxRequestImageBytes ?? DEFAULT_MAX_REQUEST_IMAGE_BYTES
-  const versions = await prepareRequestImages(options.messages, images.attachments, policy, options.signal)
+  const versions = await prepareRequestImages(split.messages, images.attachments, policy, split.signal)
   const offloadCount = requiredImageOffload(
-    options.messages,
+    split.messages,
     { representation: 'base64', maxBytes },
     (block) => versions.get(block.attachment.attachmentId)?.bytes ?? block.attachment.bytes,
   )
@@ -311,6 +358,6 @@ export async function toPiContextWithImages(options: GenerateOptions, images: Pi
       { offloadImages: offloadCount },
     )
   }
-  const exact = projectOffloadedImages(options.messages, (ref) => offloadedImageText(ref)) as DshMessage[]
-  return piContext({ ...options, messages: exact }, buildMessages({ ...options, messages: exact }, versions))
+  const exact = { ...split, messages: [...projectOffloadedImages(split.messages, (ref) => offloadedImageText(ref))] }
+  return piContext(exact, buildMessages(exact, versions))
 }

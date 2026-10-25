@@ -43,7 +43,8 @@ import {
 import type { Warn } from '../pi/auth.js'
 import type { RouteDef } from './convert.js'
 import { buildPiModels, type PiModelsLike } from './provider.js'
-import { toPiContext, toPiContextWithImages, type ImageAttachmentReader } from './request.js'
+import { requestImageTarget, toPiContext, toPiContextWithImages, type ImageAttachmentReader } from './request.js'
+import type { ImageAttachmentRef, ImageRequestTarget } from '@deepseek-ai/dsh-attachment'
 import { toStreamChunks } from './stream.js'
 
 /**
@@ -79,6 +80,21 @@ function reasoningInfo(model: Model<Api>): Pick<LlmResolvedModelInfo, 'reasoning
   }
 }
 
+/** 从 pi-ai 目录能力声明生成 dsh 0.2.1 的会话内更新模式。 */
+function conversationUpdates(model: Model<Api>): Pick<LlmResolvedModelInfo, 'systemPromptUpdate' | 'toolUpdate'> | Record<string, never> {
+  const compat = model.compat
+  if (compat === undefined || !('supportsMidConvoSystemMessages' in compat) || !compat.supportsMidConvoSystemMessages) return {}
+  const toolUpdate = model.api === 'anthropic-messages' && 'supportsMidConvoToolChanges' in compat && compat.supportsMidConvoToolChanges
+    ? 'in-history'
+    : model.api === 'openai-completions' && 'supportsMidConvoToolAdditions' in compat && compat.supportsMidConvoToolAdditions
+      ? 'addition-only'
+      : ['openai-responses', 'azure-openai-responses', 'openai-codex-responses'].includes(model.api)
+        && (('supportsAdditionalTools' in compat && compat.supportsAdditionalTools) || ('supportsToolSearch' in compat && compat.supportsToolSearch))
+        ? 'addition-only'
+        : undefined
+  return { systemPromptUpdate: 'in-history', ...(toolUpdate === undefined ? {} : { toolUpdate }) }
+}
+
 /** PiAuthBridgeAdapter 的构造选项。 */
 export interface PiAuthBridgeAdapterOptions {
   /** warn 汇（构建期跳过与请求期异常都经它上报）。 */
@@ -103,6 +119,13 @@ export interface PiAuthBridgeAdapterOptions {
 
 /** 拒绝自定义 fetch 的线路（pi-ai 的 google adapter 会抛错），代理注入按此跳过。 */
 const FETCH_REJECTING_APIS: ReadonlySet<string> = new Set(['google-generative-ai', 'google-vertex'])
+
+/** Anthropic 全延迟工具列表所需的占位声明；空工具列表会被上游拒绝。 */
+const ANTHROPIC_TOOL_UPDATE_PLACEHOLDER: NonNullable<GenerateOptions['tools']>[number] = {
+  name: 'DeferredToolPlaceholder',
+  description: 'Reserved placeholder that keeps deferred tool loading active; never call this tool.',
+  parameters: { type: 'object', properties: {} },
+}
 
 /**
  * 本插件注册的冻结路由 pi-ai 适配器。路由与 `Models` 集合在构造时固定——
@@ -181,6 +204,12 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     return { id: provider, name: this.routeMap.get(provider)?.displayName ?? provider }
   }
 
+  /** 返回与实际附件序列化一致的缩放目标，供宿主截图坐标等能力使用。 */
+  override imageRequestTarget(provider: string, model: string, image: ImageAttachmentRef): ImageRequestTarget {
+    this.modelOf(provider, model)
+    return requestImageTarget(image)
+  }
+
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve().then(() => {
       this.routeOf(provider)
@@ -203,6 +232,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
         inputModalities: [...resolved.input],
         context: { contextWindow: resolved.contextWindow },
         ...reasoningInfo(resolved),
+        ...conversationUpdates(resolved),
       }
     })
   }
@@ -247,8 +277,16 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
       signal: upstream,
       maxRetries: 0,
     }
+    const tools = options.tools ?? []
+    const hasToolUpdates = options.messages.some((message) => message.role === 'developer'
+      && message.content.some((block) => block.type === 'tool-addition' || block.type === 'tool-removal'))
+    const request = model.api === 'anthropic-messages' && conversationUpdates(model).toolUpdate === 'in-history'
+      && tools.length > 0 && tools.every((tool) => tool.deferLoading === true) && hasToolUpdates
+      ? { ...options, tools: [ANTHROPIC_TOOL_UPDATE_PLACEHOLDER, ...tools] }
+      : options
+
     try {
-      const context = attachments === undefined ? toPiContext(options) : await toPiContextWithImages(options, { attachments })
+      const context = attachments === undefined ? toPiContext(request) : await toPiContextWithImages(request, { attachments })
       const iterator = toStreamChunks(this.models.streamSimple(model, context, streamOptions), model.contextWindow)[Symbol.asyncIterator]()
       let exhausted = false
       try {

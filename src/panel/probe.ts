@@ -53,7 +53,7 @@ interface ProbeImageReader {
 
 /**
  * 图片探测的附件 reader：返回固定 1×1 PNG；并校验桥换算出的 target 形状
- * ——dsh-attachment 0.1.6 契约要求 `{width, height, maxBytes}` 正整数
+ * ——dsh-attachment 0.2.1 契约要求 `{width, height, maxBytes}` 正整数
  * （2026-09-19 事故：target 形状漂移导致全部图片请求失败）。形状不对时
  * 图片探测必失败，绝不静默通过。
  */
