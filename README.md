@@ -103,6 +103,8 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
    - 取值解析与 pi 一致：`"$ENV_VAR"` 读环境变量、`"!cmd args"` 执行 shell 命令取 stdout（默认 10s 超时，内存缓存，每次挂载最多执行一次）、其余为字面量。
 4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件：模型声明 image 输入且 dsh 组合挂了 dsh-attachment 服务时，durable 引用经 `readImageRequest` 投影（按 ref 尺寸换算 `{width, height, maxBytes}` target，默认 2048×2048 / 1 MiB；请求级 20 MiB 预算超出时抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主标记卸载后重试）后以 base64 内联为 pi-ai image 块；模型不支持图片输入、附件服务缺失或非 user/tool 角色带图时显式抛 `UNSUPPORTED_CONTENT`，不静默丢图。
 
+文本与图片路径都会在合并开头 system 消息、读取附件前校验完整历史：system 只允许纯文本，非法内容显式抛 `UNSUPPORTED_CONTENT`，不静默丢弃。
+
 ## 代理支持
 
 pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代理，靠的是 pi CLI 启动时的全局 dispatcher 补丁）。本插件在**不触碰全局状态**的前提下补上这一环：
@@ -173,10 +175,12 @@ pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代�
 ```bash
 npm run typecheck   # tsc --noEmit，严格模式零错误
 npm run build       # tsc → dist/（host + Typert 产物），tsdown → dist/client.js（浏览器半区）
-npm test            # vitest run，116 个用例
+npm test            # vitest run
 ```
 
-测试全部使用临时目录 fixture 与 mock（注入的 `execCmd`、fake pi-ai 流），不访问真实 `~/.pi`，不访问网络。
+`npm test` 全部使用临时目录 fixture 与 mock（注入的 `execCmd`、fake pi-ai 流），不访问真实 `~/.pi`，不访问网络。
+
+2026-10-26 另以真实 dsh `0.2.1-rc.2` 临时 Web profile 完成云端文本、user/tool 图片请求及面板 Gateway 四维探测；浏览器实际点击与其他 provider 尚未覆盖。验证范围见[设计文档「背景事实」](docs/spec/2026-08-29-pi-auth-bridge-design.md)。
 
 ## 许可证
 

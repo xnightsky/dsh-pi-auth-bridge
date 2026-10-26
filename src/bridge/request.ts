@@ -290,6 +290,9 @@ function assertSupportedHistory(messages: readonly DshMessage[]): void {
     if (message.role !== 'user' && message.role !== 'tool' && contentHasImage(message.content)) {
       throw new LlmError(`pi-auth-bridge cannot represent an image in an in-history ${message.role} message`, 'UNSUPPORTED_CONTENT')
     }
+    if (message.role === 'system' && message.content.some((block) => block.type !== 'text')) {
+      throw new LlmError('pi-auth-bridge cannot represent non-text system messages', 'UNSUPPORTED_CONTENT')
+    }
   }
 }
 
@@ -341,8 +344,9 @@ export function toPiContext(options: GenerateOptions): PiContext {
  * 契约，路由不自行卸载）；已卸载块投影为稳定的占位文本。
  */
 export async function toPiContextWithImages(options: GenerateOptions, images: PiImageSupport): Promise<PiContext> {
+  // 必须先校验完整历史，否则开头 system 的非法块会在提取文本时丢失。
+  assertSupportedHistory(options.messages)
   const split = splitLeadingSystem(options)
-  assertSupportedHistory(split.messages)
   const policy = images.requestImagePolicy ?? DEFAULT_REQUEST_IMAGE_POLICY
   const maxBytes = images.maxRequestImageBytes ?? DEFAULT_MAX_REQUEST_IMAGE_BYTES
   const versions = await prepareRequestImages(split.messages, images.attachments, policy, split.signal)

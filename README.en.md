@@ -103,6 +103,8 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
    - value resolution matches pi itself: `"$ENV_VAR"` reads an environment variable, `"!cmd args"` runs a shell command and takes its stdout (10s default timeout, in-memory cache, at most one execution per mount), anything else is a literal.
 4. **Adapt** (`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`): `PiAuthBridgeAdapter extends LlmAdapter`, builds the pi-ai collection with `createModels`, and passes credentials via a per-request `apiKey` override (routes with `authHeader: true` send the key as an `Authorization: Bearer <key>` header instead); honors the dsh adapter contract (`usage` before `finish`, no chunks after `finish`, tool-call `arguments` as a raw JSON string, `argumentsDelta` for streaming, block `index` assigned on first appearance and reused, errors only via `LlmError` or `finish {kind:'error'|'aborted'}`, respects `options.signal`, unsupported options raise `UNSUPPORTED_OPTION`); every request carries the dsh-llm-mandated `attributionHeaders()` attribution headers (colliding custom headers yield, with a build-time warn). Image attachments: when the model declares image input and the dsh composition mounts the dsh-attachment service, durable references are projected via `readImageRequest` (per-reference `{width, height, maxBytes}` targets, default 2048×2048 / 1 MiB per image; a request-level 20 MiB budget raises `IMAGE_OFFLOAD_REQUIRED` for the host to mark and retry) and inlined as base64 pi-ai image blocks; a model without image input, a missing attachment service, or an image outside a user/tool role raises an explicit `UNSUPPORTED_CONTENT` — images are never silently dropped.
 
+Both text and image paths validate the complete history before merging leading system messages or reading attachments. System messages accept text only; unsupported content raises `UNSUPPORTED_CONTENT` rather than being silently dropped.
+
 ## Proxy support
 
 Neither pi-ai nor dsh reads `http_proxy`-style environment variables (pi itself only works behind a proxy because the pi CLI installs a global dispatcher patch at startup). This plugin fills the gap **without touching global state**:
@@ -173,10 +175,12 @@ In one sentence: the official adapter targets the harness-owned credential/login
 ```bash
 npm run typecheck   # tsc --noEmit, zero errors under strict mode
 npm run build       # tsc → dist/ (host + Typert artifacts), tsdown → dist/client.js (browser half)
-npm test            # vitest run, 116 test cases
+npm test            # vitest run
 ```
 
-All tests use temp-directory fixtures and mocks (injected `execCmd`, fake pi-ai streams); they never touch the real `~/.pi` and never access the network.
+`npm test` uses temp-directory fixtures and mocks (injected `execCmd`, fake pi-ai streams); it never touches the real `~/.pi` or accesses the network.
+
+On 2026-10-26, a separate temporary Web profile running the real dsh `0.2.1-rc.2` CLI passed cloud text and user/tool image requests, plus all four panel probes through the host Gateway. Browser clicks and other providers remain unverified; see the background facts in the [design document](docs/spec/2026-08-29-pi-auth-bridge-design.md).
 
 ## License
 
