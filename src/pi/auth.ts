@@ -10,11 +10,14 @@
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { OAuthCredential } from '@earendil-works/pi-ai'
 
 /** pi 的 `auth.json` 中的一条条目。 */
 export type PiAuthEntry =
   | { type: 'api_key'; key: string }
-  | { type: 'oauth'; access: string; refresh?: string; expires?: number }
+  | (Pick<OAuthCredential, 'type' | 'access'>
+    & Partial<Pick<OAuthCredential, 'refresh' | 'expires'>>
+    & Record<string, unknown>)
 
 /** `models.json` 中某 provider 的一条模型条目。 */
 export interface PiModelDef {
@@ -90,7 +93,10 @@ function parseAuthEntry(value: unknown): PiAuthEntry | undefined {
     if (typeof access !== 'string' || access.length === 0) return undefined
     const refresh = optionalString(value, 'refresh')
     const expires = optionalNumber(value, 'expires')
+    // 通用字段单独校验；其余元数据（如 OpenAI 的 clientId）由 SDK 消费。
+    const { refresh: _refresh, expires: _expires, ...metadata } = value
     return {
+      ...metadata,
       type: 'oauth',
       access,
       ...(refresh !== undefined ? { refresh } : {}),

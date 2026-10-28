@@ -4,6 +4,7 @@
  *
  * @module dsh-pi-auth-bridge/convert
  */
+import type { OAuthCredentials } from '@earendil-works/pi-ai'
 import type { PiAuthEntry, PiModelDef, PiModelsFile, PiValueResolver, Warn } from '../pi/auth.js'
 
 /**
@@ -29,7 +30,9 @@ export interface RouteDef {
    * 交给 pi-ai 内存凭据存储的 OAuth 凭据，使其自身的刷新机制可以轮换过期
    * token。绝不回写到任何地方。
    */
-  oauth?: { access: string; refresh: string; expires?: number }
+  oauth?: Pick<OAuthCredentials, 'access' | 'refresh'>
+    & Partial<Pick<OAuthCredentials, 'expires'>>
+    & Record<string, unknown>
   /** 自定义 provider 的线协议（`openai-completions` 等）。 */
   api?: string
   /** 自定义 provider 的端点覆盖。 */
@@ -64,9 +67,9 @@ function resolved(resolve: PiValueResolver, raw: string | undefined): string | u
  * 从 pi 的配置构建路由集合。
  *
  * 每个 provider 的凭据优先级：`auth.json` 同名条目 >
- * `models.json` 的 `apiKey` 字段。OAuth 条目：未过期的 access token 直接
- * 当作普通 api key 桥接；已过期但带 refresh token 的交给 pi-ai 自身
- * （内存中）刷新；其余情况发出 warn 并跳过。
+ * `models.json` 的 `apiKey` 字段。带 refresh 的 OAuth 始终交给 pi-ai 的
+ * 内存认证链路，保留扩展元数据与运行中续期能力；仅 access-only 条目
+ * 在尚有效时作为静态 key 使用。
  */
 export function buildRoutes(
   auth: Record<string, PiAuthEntry> | undefined,
@@ -102,16 +105,11 @@ export function buildRoutes(
         warn(`pi-auth-bridge: provider "${providerId}": OAuth entry ignored because includeOAuth is false`)
       } else {
         const expired = entry.expires !== undefined && entry.expires <= now
-        if (!expired) {
-          // 未过期的 access token：可直接当作普通 bearer key 使用。
+        if (entry.refresh !== undefined && entry.refresh.length > 0) {
+          const { type: _type, ...credential } = entry
+          oauth = { ...credential, refresh: entry.refresh, expires: entry.expires ?? 0 }
+        } else if (!expired) {
           apiKey = entry.access
-        } else if (entry.refresh !== undefined && entry.refresh.length > 0) {
-          // 已过期但可刷新：pi-ai 在内存中刷新；不回写任何内容。
-          oauth = {
-            access: entry.access,
-            refresh: entry.refresh,
-            ...(entry.expires !== undefined ? { expires: entry.expires } : {}),
-          }
         } else {
           warn(`pi-auth-bridge: provider "${providerId}": OAuth token expired and has no refresh token; provider skipped`)
           continue
@@ -119,7 +117,7 @@ export function buildRoutes(
       }
     }
 
-    if (apiKey === undefined && custom?.apiKey !== undefined) {
+    if (apiKey === undefined && oauth === undefined && custom?.apiKey !== undefined) {
       apiKey = resolved(resolve, custom.apiKey)
       if (apiKey === undefined) {
         warn(`pi-auth-bridge: provider "${providerId}": models.json apiKey could not be resolved`)

@@ -7,6 +7,8 @@
  * - 自定义 provider（models.json 声明）使用与目录完全相同的懒加载协议工厂。
  * - OAuth 凭据只播种进 pi-ai 的**内存** Credential Store，由 pi-ai 自己的刷新
  *   机制轮换；绝不写盘、不写 dsh 凭据面、不回写 `~/.pi`。
+ * - 集合索引用 pi/ 路由名；目录流边界恢复原 provider id，保留 SDK 的专用行为。
+ * - 流请求等待凭据播种完成，不能因初始化竞态回退到环境认证。
  * - 任何不可服务的路由都跳过并 warn，绝不静默失败。
  *
  * @module dsh-pi-auth-bridge/provider
@@ -153,6 +155,15 @@ function materializeModels(
   return models
 }
 
+/** 完成路由认证后，在协议边界恢复 SDK 识别的目录身份。 */
+function canonicalStreams(streams: ProviderStreams, providerId: string): ProviderStreams {
+  const canonicalModel = (model: Model<Api>): Model<Api> => ({ ...model, provider: providerId as Model<Api>['provider'] })
+  return {
+    stream: (model, context, options) => streams.stream(canonicalModel(model), context, options),
+    streamSimple: (model, context, options) => streams.streamSimple(canonicalModel(model), context, options),
+  }
+}
+
 /** 复用已安装的目录 provider，套上本路由的标识、模型与认证。 */
 function reuseCatalogProvider(catalog: Provider, route: RouteDef, warn: Warn): Provider | undefined {
   const catalogModels = catalog.getModels()
@@ -184,24 +195,21 @@ function reuseCatalogProvider(catalog: Provider, route: RouteDef, warn: Warn): P
     ...(baseUrl === undefined ? {} : { baseUrl }),
     auth: routeAuth(route, catalog),
     getModels: () => models,
-    stream: (model, context, options) => catalog.stream(model, context, options),
-    streamSimple: (model, context, options) => catalog.streamSimple(model, context, options),
+    ...canonicalStreams(catalog, catalog.id),
   }
 }
 
 /** 为一条路由构建 pi-ai provider；不可服务时返回 undefined（并 warn）。 */
 function buildProvider(route: RouteDef, warn: Warn): Provider | undefined {
   const catalog = catalogProviders().get(route.providerId)
+  if (route.oauth !== undefined && catalog?.auth.oauth === undefined) {
+    warn(`pi-auth-bridge: provider "${route.providerId}": OAuth credential cannot be refreshed (no pi-ai OAuth handler); route skipped`)
+    return undefined
+  }
   // 无协议覆盖的目录路由复用已安装 provider，保留其 API 实现、兼容 quirks 与环境认证。
   if (catalog !== undefined && route.api === undefined) return reuseCatalogProvider(catalog, route, warn)
   if (catalog === undefined && route.kind === 'builtin') {
     warn(`pi-auth-bridge: provider "${route.providerId}" has credentials but is unknown to the pi-ai catalog and not described by models.json; route skipped`)
-    return undefined
-  }
-  if (catalog === undefined && route.apiKey === undefined && route.oauth !== undefined) {
-    // pi-ai 的 OAuth 刷新机制只存在于目录 provider；只持过期 OAuth 的自定义
-    // provider 若注册，会得到一条必然 401 的死路由。
-    warn(`pi-auth-bridge: provider "${route.providerId}": expired OAuth credential cannot be refreshed for a custom provider (no pi-ai catalog auth); route skipped`)
     return undefined
   }
   const factory = route.api === undefined ? undefined : PROTOCOLS[route.api]
@@ -228,8 +236,20 @@ function buildProvider(route: RouteDef, warn: Warn): Provider | undefined {
     baseUrl: route.baseURL,
     auth: routeAuth(route, catalog),
     models,
-    api: factory(),
+    api: catalog === undefined ? factory() : canonicalStreams(factory(), catalog.id),
   })
+}
+
+/** 在认证播种完成后才允许请求，避免 SDK 将空存储误判为环境认证。 */
+function readyModels(models: PiModelsLike, ready: Promise<unknown>): PiModelsLike {
+  return {
+    getModel: (provider, id) => models.getModel(provider, id),
+    getModels: (provider) => models.getModels(provider),
+    async *streamSimple(model, context, options) {
+      await ready
+      yield* models.streamSimple(model, context, options)
+    },
+  }
 }
 
 /**
@@ -245,6 +265,7 @@ export function buildPiModels(routes: readonly RouteDef[], options: { warn?: War
     authContext: defaultProviderAuthContext(),
   })
   const served: string[] = []
+  const pending: Promise<unknown>[] = []
   for (const route of routes) {
     const provider = buildProvider(route, warn)
     if (provider === undefined) continue
@@ -253,15 +274,13 @@ export function buildPiModels(routes: readonly RouteDef[], options: { warn?: War
     if (route.oauth !== undefined) {
       const oauth = route.oauth
       // 播种后即忘：pi-ai 在存储锁内刷新；轮换出的 token 只活在当前进程内存中。
-      void credentials.modify(route.route, () =>
-        Promise.resolve({
-          type: 'oauth',
-          access: oauth.access,
-          refresh: oauth.refresh,
-          expires: oauth.expires ?? 0,
-        }),
-      )
+      pending.push(credentials.modify(route.route, () =>
+        Promise.resolve({ ...oauth, type: 'oauth', expires: oauth.expires ?? 0 }),
+      ))
     }
   }
-  return { models, served }
+  const ready = Promise.all(pending)
+  // 立即观察初始化失败；首个流请求仍会收到同一个拒绝，绝不静默回退。
+  void ready.catch(() => warn('pi-auth-bridge: in-memory OAuth credential initialization failed'))
+  return { models: readyModels(models, ready), served }
 }

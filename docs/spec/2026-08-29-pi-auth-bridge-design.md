@@ -43,7 +43,12 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 - **历史校验顺序（2026-10-26 对照复现）**：v0.5.2 已支持 DSH 0.2.1 的独立工具结果、图片 target、原生 system 与工具更新；真实宿主 `0.2.1-rc.2` 的兼容检查、附件服务和 pi-ai 本地回环请求均通过。残留缺陷是图片转换先合并开头 system 再校验，导致其中图片或错位工具更新被静默丢弃；system 内 reasoning 等非文本块也会被文本提取忽略。两个转换入口必须先校验完整历史，system 只允许纯文本，非法块统一抛 `UNSUPPORTED_CONTENT`，并在失败前不读取附件。保留 v0.5.2 的 system 角色、工具更新、延迟声明和精确 peer 锁定。
 - **历史校验验证（2026-10-26，Node v24.14.0）**：新增 `tests/request-history.test.ts` 的 7 项回归（原版 4 失败、修复后全部通过）；修复后类型检查、155 项测试和构建通过。额外隔离对照的 12 项检查使用宿主真实兼容检查、LLM runtime、附件存储及 pi-ai，配合本地 HTTP 上游，验证 user/tool 图片往返及 system 指令角色；修复后保留 system 语义。
 - **真实 CLI / 云端验收（2026-10-26）**：使用安装的 `dsh@0.2.1-rc.2` CLI 启动独立临时 Web profile，按正式包名与 bundle 加载当前构建（main `af48fa4` + 历史校验修复），只读本机 pi 配置，使用真实 `openai-completions` 图片模型。Loader/Typert 清单发现、三项启动自检、云端文本回复、真实附件存储后的 user 图片与独立 tool 结果图片均通过（两次图片回答均为 `red`）；非法开头 system 图片经宿主返回 `finish {kind:'error'}`，错误码为 `UNSUPPORTED_CONTENT`。通过宿主 Typert Gateway 调用面板探测，text/image/toolCall/reasoning 四维均为 `ok`，usage 先于 finish，缓存回读与浏览器插件资源注册通过。测试宿主已退出，pi 的 `auth.json` / `models.json` 测前测后 SHA-256 一致，未修改用户 dsh 配置。尚未覆盖浏览器实际点击、其余 provider/协议和其他 dsh 版本，剩余集成风险限定于这些范围。
-- pi-ai 库：`@earendil-works/pi-ai`@^1.1.0，与官方 `dsh-llm-pi-ai@0.2.1-rc.2` 对齐；导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
+- pi-ai 库：`@earendil-works/pi-ai`@^1.4.0（新版 OpenAI OAuth 的已验证最低支持基线，lockfile 为 1.4.0）；导出 `createModels`、`Models.streamSimple()`、`AuthContext`、`CredentialStore` 等（以安装后的 .d.ts 为准）。
+- **新版 OpenAI OAuth（2026-10-28，本地 pi-ai 1.4.0 契约与合成凭据复现）**：支持目标为 `openai` 的 Sign in with ChatGPT / Responses API，不新增旧 `openai-codex` 专用兼容。该流程的续期依赖凭据中的 `clientId`，并返回 `scopes` 等扩展字段；桥只校验通用字段，扩展元数据仅在 host 内存透传，交 SDK 校验和消费。原实现会丢失元数据，且把启动时有效的 OAuth 降成静态 key，导致后续无法续期。
+- **目录身份与 OAuth 网络边界**：pi-ai 的 OpenAI API 实现根据原始 `model.provider === 'openai'` 识别 ChatGPT OAuth 并省略不支持的请求字段。集合注册、模型查询和凭据索引仍用 `pi/openai`，仅在调用目录 provider 的流方法前恢复目录身份。SDK 的 OAuth 刷新直接调用全局 `fetch`，不消费模型请求的 `SimpleStreamOptions.fetch`；桥不修改全局 fetch/dispatcher，不重写刷新协议。受限网络下，宿主需以 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）及 HTTP(S) 代理变量启动。
+- **新版 OpenAI OAuth 修复验证（2026-10-28，Node v24.14.0 / pi-ai 1.4.0）**：先复现定向回归 13 失败，再补充显式 Responses 协议覆盖的失败回归。修复后全量类型检查、170 项测试及构建通过；新增 15 项测试，无真实凭据或云端调用。构建产物另以合成凭据验证一次刷新后连续两次 Responses 请求成功；刷新 1 次、模型请求 2 次。真实 ChatGPT 账号、宿主 Web UI 和 OAuth 原生代理联网尚未验收。
+- **真实 OAuth 续期的 dispatcher 冲突（2026-10-28）**：当前构建使用真实 `openai` OAuth，在 `gpt-6-sol` 连续两次返回 HTTP 200 / `OK`，参数裁剪与只读断言通过。显式启动 Node 原生代理后，真实续期却返回 403 `unsupported_country_region_territory`；无凭据对照中，同一进程原生 fetch 为 403、请求级代理 fetch 为 400 `invalid_request`。独立进程证实，导入 undici 8 会将 `undici.globalDispatcher.1` 从 Node 的 `EnvHttpProxyAgent` 替换成其 v2 默认 Agent 包装器。方案：将本库 undici 限制在 7.x（与 Node 内置 dispatcher 及 OpenAI SDK 的 `>=5 <9` peer 范围兼容），避免 v2 导入初始化覆盖宿主设置；补隔离子进程回归，不用手动恢复全局 dispatcher 的补丁。宿主其他依赖若主动加载并重置 dispatcher，仍属于外部边界。
+- **新版 OpenAI OAuth 真实验收通过（2026-10-28，Node v24.14.0 / pi-ai 1.4.0 / undici 7.30.1）**：使用当前构建产物、真实 pi `openai` 登录态和 OpenAI 云端，验证进程显式配置代理并启动 Node 原生环境代理；本机代理地址未写入仓库。仅将内存副本的 `expires` 置零，SDK 真实续期 HTTP 200，issued `clientId` 匹配、access 与 refresh 均发生轮换，返回有效期 3600 秒及 direct scope。随后 `pi/openai` / `gpt-6-sol` 连续两次 HTTP 200，均返回 `OK`、usage 与正常 finish；模型请求确实使用刚签发的 access，去除 ChatGPT 不支持字段，第二次无重复刷新，禁用环境 API key。两次请求分别约 8.5 秒（含刷新）和 3.0 秒，原始 `auth.json` / `models.json` 测前测后 SHA-256 一致，token 未落盘。新增隔离回归在 undici 8 下 2 失败、7 下转绿；全量类型检查、172 项测试及构建通过。刷新由用户明确授权；验证进程已退出，新 refresh 未持久化，pi 原文件的旧 refresh 可能失效，必要时重新登录。未部署到用户 dsh profile，未覆盖本轮宿主 Web UI、其他 provider 或宿主第三方依赖重置 dispatcher 的情形。
 - **代理嗅探的责任在宿主进程，不在 pi-ai**（2026-09-11 实证）：pi-ai 所有线路直接用 `globalThis.fetch`，全包无 `setGlobalDispatcher`/`ProxyAgent`；Node 全局 fetch 默认不读 `http_proxy` 等变量（`NODE_USE_ENV_PROXY`/`--use-env-proxy` 自 Node 24.5 起存在但默认关闭）；dsh 宿主同样无代理处理。pi 本体能走代理，是因为 pi CLI 启动时 `configureHttpDispatcher()` 用 npm 包 `undici` 的 `EnvHttpProxyAgent({ allowH2: false, proxyTunnel: true, ... })` + `setGlobalDispatcher` + 重装 `globalThis.fetch` 做了进程级补丁。因此桥必须自己补这一环（见 §2.6）。
 - pi-ai 的 `SimpleStreamOptions.fetch`（`FetchFunction = typeof globalThis.fetch`）是自定义 fetch 的注入点，会透传到各线路 adapter；但 `google-generative-ai` 与 `google-vertex` 两条线路的 adapter 显式抛错拒绝自定义 fetch（其请求由 `@google/genai` 内部发出）。
 - dsh web 模型选择器的展示结构（2026-08-29 核实全局安装产物）：只有两级「分组 → 模型」。分组 key = provider 路由 id **原样**（不按 `/` 或任何分隔符切分），分组标题 = `LlmProviderInfo.name`；路由 id 仅校验非空，`/` 合法。因此 PI 无法成为真正的三级「渠道」，出处只能编码进路由 id 前缀与分组标题（见 §2.3）。
@@ -104,7 +109,7 @@ README.md         # 中文为主，附 English 摘要
 - 纯函数注入 env/homedir，便于 Windows/Linux 双平台单测（用 win32 风格路径样本测拼接逻辑）
 
 ### 2.2 pi/auth.ts
-- 类型：`PiAuthEntry = {type:'api_key',key:string} | {type:'oauth',access:string,refresh?:string,expires?:number}`
+- 类型：`PiAuthEntry` 的 OAuth 分支复用 SDK 公共凭据字段，允许缺省 `refresh` / `expires`，并保留 provider 扩展元数据（如新版 OpenAI 的 `clientId` / `scopes`）。非法通用可选字段不透传；扩展字段由 provider 自身验证，绝不进入面板。
 - `readPiAuth(dir)`, `readPiModels(dir)`：文件不存在 → `undefined`；JSON 损坏 → 抛带路径信息的 `PiAuthBridgeError`；条目形态非法 → 跳过该条并 warn（不整体失败）
 - `resolvePiValue(raw, {env, execCmd}): string | undefined`：实现 `$ENV` / `!cmd` / 字面量三态；`!cmd` 带超时（默认 10s）与内存缓存；失败返回 `undefined` 并 warn
 
@@ -112,7 +117,8 @@ README.md         # 中文为主，附 English 摘要
 - `buildRoutes(auth, models, opts): RouteDef[]`
 - 对每个 `auth.json` 里有凭据的 provider：生成路由（provider 元数据交给 pi-ai 内置目录）
 - 对每个 `models.json` 自定义 provider：生成路由 `{ api, baseURL, models, headers, authHeader }`，apiKey 解析顺序 = auth.json 同名片 > models.json `apiKey` 字段
-- `oauth` 条目：`access` 未过期 → 当 apiKey 用；已过期且有 `refresh` → 交给 pi-ai 的 OAuth 刷新机制（内存态，**不回写**）；都不行的跳过并 warn。注意刷新机制只存在于 pi-ai 目录 provider：自定义 provider 持有过期 OAuth（无 apiKey）时在 adapter 构建期跳过并 warn（见 §2.4），否则会产生一条必然 401 的死路由
+- `oauth` 条目：有非空 `refresh` → 无论启动时是否过期，始终保留 OAuth 及扩展元数据，交 pi-ai 的内存 CredentialStore；缺省 `expires` 按 0 交 SDK 刷新。仅无 refresh 且尚有效（或无 expires）的 access-only 条目保留静态 key 行为，不能自动续期；已过期且无 refresh 则跳过并 warn。
+- `auth.json` 中选中的 OAuth 不允许再被 `models.json.apiKey` 覆盖；目录无 OAuth handler 的可刷新条目构建期跳过并 warn，不能注册后偷偷回退环境 key。
 - `opts.providers?: string[]` 白名单过滤；路由名**固定** `pi/<providerId>` 前缀（`PI_ROUTE_PREFIX`，不可配——避免与 dsh 原生及其他适配器路由撞名）；`displayName` 恒为 `Pi · <名称>`（custom 用其 `name`，builtin 用 provider id）——dsh web 选择器没有三级「渠道」结构，PI 出处只能由路由 id 前缀与分组标题共同表达（见 §0 末条）
 
 ### 2.4 bridge/adapter.ts（组合 provider.ts / request.ts / stream.ts）
@@ -123,7 +129,9 @@ README.md         # 中文为主，附 English 摘要
 - `models.json` 的 `authHeader: true` 接通：该路由的 apiKey 以 `Authorization: Bearer <key>` 头发送（pi-ai 无 authHeader 概念，由桥自身注入），不再走 pi-ai 的 apiKey override
 - `options.sessionId` 透传给 pi-ai（`SimpleStreamOptions.sessionId`，用于会话亲和）
 - 开头 system 历史与 `options.system` 合并为 systemPrompt；后续 system/developer 历史映射为 pi-ai system 消息，`tool` 角色映射为 toolResult；`resolveModel()` 按模型 compat 声明会话内 system/tool 更新能力
-- 自定义 provider（不在 pi-ai 目录）只持过期 OAuth 时：构建期跳过并 warn（pi-ai 的 OAuth 刷新机制只存在于目录 provider）
+- 目录 provider 的模型在 Models 集合中保持 `pi/<id>` 身份，完成认证解析后，仅在目录 `stream` / `streamSimple` 调用边界恢复原始 provider id，保留 SDK 的 OpenAI ChatGPT 参数裁剪等专用逻辑。已知目录 provider 显式覆盖 `api` 时，同样在协议流边界恢复目录身份；自定义非目录 provider 不改名。
+- OAuth 凭据完整播种到 SDK 的 InMemoryCredentialStore；第一次流请求必须等待播种完成，播种失败显式报告，不允许读到空存储而回退环境认证。刷新与进程内并发锁完全复用 SDK；无 OAuth handler 的可刷新路由跳过并 warn。
+- 新 token 和轮换后的 refresh 仅留当前进程内存，不回写、不监视 pi 文件。进程重启会重读 pi 原文件；与 pi 或其他 dsh 进程并行刷新、以及重启后的旧 refresh 失效风险由只读边界决定，不承诺跨进程协调。
 - 代理注入：构造选项 `proxyFetch?: FetchFunction`（由 index.ts 按 §2.5 嗅探构造）；`stream()` 时除 `google-generative-ai`/`google-vertex`（pi-ai 拒绝自定义 fetch）外注入为 `SimpleStreamOptions.fetch`；google 路由每路由 warn 一次提示用 `NODE_USE_ENV_PROXY=1` 兜底
 
 ### 2.5 bridge/proxy.ts（代理环境变量嗅探与注入式代理 fetch）
@@ -134,6 +142,7 @@ README.md         # 中文为主，附 English 摘要
 - 开关：`Config.proxy?: boolean`，默认 `true`（自动嗅探）。默认开的理由：插件卖点是零配置即转即用，环境变量已设好就期望被尊重；未设代理变量时嗅探为空、注入不发生，开关自闭合。`proxy: false` 用于「环境变量是给别的工具的，LLM 流量必须直连」的场景（内网镜像、本地端点、代理坏 SSE 等）。不做「显式代理 URL」配置面——环境变量本身就是那个配置面（YAGNI）。
 - google 线路例外：`google-generative-ai`/`google-vertex` 的 pi-ai adapter 拒绝自定义 fetch，adapter 在 `stream()` 时按 `model.api` 跳过注入并对每路由 warn 一次；这两条线路的代理需求由方案 B 兜底。
 - 方案 B（零代码兜底，写进 README）：以 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）启动 dsh，让 Node 内建 fetch 自己读代理变量——覆盖 google 线路，也是不想依赖 undici 场景的全局备选。
+- OAuth 刷新同样依赖宿主的全局 fetch 可达性，不受插件 `proxy` 开关或请求级代理 fetch 控制。`NODE_USE_ENV_PROXY=1` 必须在进程启动时设置；仅设 `all_proxy` 不足以保证 Node 原生代理生效，应配置 `HTTP_PROXY` / `HTTPS_PROXY`（或对应小写变量）。
 
 ### 2.6 index.ts
 ```ts
@@ -156,6 +165,8 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - convert：内置 provider 路由、models.json 自定义 provider 全字段映射、白名单、固定 `pi/` 前缀与 `Pi ·` 冠名、apiKey 优先级
 - adapter：用 pi-ai 的 mock/fake 流验证 chunk 顺序（usage→finish）、tool-call argumentsDelta、signal 中止、UNSUPPORTED_OPTION
 - proxy：`hasProxyEnv` 各变量族/空串/仅 no_proxy；`createEnvProxyFetch` 无代理返回 undefined、有代理返回函数；adapter 注入：普通线路带上 `fetch`、google 线路跳过且 warn 一次
+- proxy-isolation：隔离 Node 子进程预置宿主 dispatcher，分别仅导入代理模块与构造代理 fetch，验证宿主 dispatcher 及全局 fetch 身份均不变；不读取登录态、不发网络请求。
+- openai-oauth：用合成 auth.json fixture、真实 pi-ai 与拦截的 OAuth / Responses fetch 验证元数据全链路、首次请求、运行中续期、轮换令牌复用、进程内并发、刷新失败不回退、ChatGPT 专用字段裁剪与 API key 路径不变；同时断言文件内容不变、状态快照不含凭据及元数据。不访问真实 pi 或云端。
 - 全部 `npm test`（或 `npx vitest run`）必须通过
 
 ## 4. README 要点（已落实）

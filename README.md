@@ -101,7 +101,7 @@ locatePiDir → readPiAuth/readPiModels → buildRoutes → PiAuthBridgeAdapter 
    - apiKey 优先级：`auth.json` 同名条目 > `models.json` 的 `apiKey` 字段；
    - 模型条目的 `input` 声明（如 `["text", "image"]`）透传为模型的输入模态——dsh 据此判定图片能力；未声明时回退 pi-ai 目录同名模型，目录也没有时视为纯文本；
    - 取值解析与 pi 一致：`"$ENV_VAR"` 读环境变量、`"!cmd args"` 执行 shell 命令取 stdout（默认 10s 超时，内存缓存，每次挂载最多执行一次）、其余为字面量。
-4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，请求级 `apiKey` override 传入凭据（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件：模型声明 image 输入且 dsh 组合挂了 dsh-attachment 服务时，durable 引用经 `readImageRequest` 投影（按 ref 尺寸换算 `{width, height, maxBytes}` target，默认 2048×2048 / 1 MiB；请求级 20 MiB 预算超出时抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主标记卸载后重试）后以 base64 内联为 pi-ai image 块；模型不支持图片输入、附件服务缺失或非 user/tool 角色带图时显式抛 `UNSUPPORTED_CONTENT`，不静默丢图。
+4. **适配**（`provider.ts` / `request.ts` / `stream.ts` / `adapter.ts`）：`PiAuthBridgeAdapter extends LlmAdapter`，用 `createModels` 构建 pi-ai 集合，API key 通过请求级 `apiKey` override 传入，可刷新的 OAuth 则交 SDK 内存凭据存储管理（`authHeader: true` 的路由改为以 `Authorization: Bearer <key>` 头发送 key）；遵守 dsh 适配器协议（`usage` 先于 `finish`、`finish` 后无 chunk、tool-call `arguments` 为原始 JSON 字符串、流式用 `argumentsDelta`、块 `index` 按首次出现分配并复用、错误只走 `LlmError` 或 `finish {kind:'error'|'aborted'}`、遵守 `options.signal`、不支持的 option 抛 `UNSUPPORTED_OPTION`）；每次请求携带 dsh-llm 强制的 `attributionHeaders()` 归因头（撞名的自定义头让位并在构建期 warn）。图片附件：模型声明 image 输入且 dsh 组合挂了 dsh-attachment 服务时，durable 引用经 `readImageRequest` 投影（按 ref 尺寸换算 `{width, height, maxBytes}` target，默认 2048×2048 / 1 MiB；请求级 20 MiB 预算超出时抛 `IMAGE_OFFLOAD_REQUIRED` 由宿主标记卸载后重试）后以 base64 内联为 pi-ai image 块；模型不支持图片输入、附件服务缺失或非 user/tool 角色带图时显式抛 `UNSUPPORTED_CONTENT`，不静默丢图。
 
 文本与图片路径都会在合并开头 system 消息、读取附件前校验完整历史：system 只允许纯文本，非法内容显式抛 `UNSUPPORTED_CONTENT`，不静默丢弃。
 
@@ -112,6 +112,8 @@ pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代�
 - **默认开启**（`proxy: true`）：挂载时嗅探 `http_proxy` / `https_proxy` / `all_proxy`（大小写均认）；探测到就用 `undici` 的 `EnvHttpProxyAgent`（与 pi CLI 同款参数）构造代理 fetch，经 `SimpleStreamOptions.fetch` 只注入本桥自己的请求——不动 `globalThis.fetch`，不影响 dsh 其他适配器。`no_proxy` 生效；未设代理变量时不注入，行为与之前完全一致。
 - **关闭**：`proxy: false`。适用于代理变量是留给 git/npm 等工具、而 LLM 端点必须直连的场景（内网镜像、本地端点等）。
 - **google 线路例外**：`google-generative-ai` / `google-vertex` 的 pi-ai adapter 拒绝自定义 fetch，这两条路由不注入（每路由 warn 一次）。如需给它们走代理，以 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）启动 dsh，让 Node 内建 fetch 自己读代理变量——这也是不想依赖 undici 时的全局备选。
+- **OAuth 刷新例外**：SDK 内部刷新调用全局 `fetch`，不会使用本插件的模型请求代理，也不受 `proxy: false` 控制。受限网络中请使用 Node ≥ 24.5，在启动 dsh 前设置 `NODE_USE_ENV_PROXY=1`，并配置 `HTTP_PROXY` / `HTTPS_PROXY`（或对应小写变量）；不能只依赖 `all_proxy`。插件不会替宿主修改全局 fetch 或 dispatcher。
+- **全局代理隔离**：本库将 `undici` 限制在 7.x，避免 8.x 导入时覆盖 Node 内置的全局代理 dispatcher。宿主其他依赖若自行重置 dispatcher，仍需由宿主协调；仅设置代理地址并不能保证 OAuth 刷新走代理。
 - 启动日志出现 `pi-auth-bridge: proxy environment detected; ...` 即代理注入已生效。
 
 ## 插件面板（Settings → Pi Auth Bridge）
@@ -129,11 +131,15 @@ pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代�
 
 ## OAuth 凭据的处理与限制
 
-- access token **未过期**（或无 `expires`）→ 直接当 bearer key 使用；
-- **已过期但有 refresh token** → 注入 pi-ai 的**内存** `CredentialStore`，由 pi-ai 自己的 OAuth 刷新机制在请求时刷新；刷新出的新 token 只活在内存里，**绝不回写** `auth.json`。注意：刷新能力来自 pi-ai 内置目录中该 provider 自带的 OAuth 定义，因此仅对目录内的 provider（如 anthropic、openai-codex 等）有效；刷新失败时该 provider 的请求会以错误终止，重新在 pi 侧登录即可恢复；
-- 已过期且无 refresh token → 跳过该 provider 并 warn；
-- 自定义 provider（不在 pi-ai 目录内）只持过期 OAuth → 无法刷新，构建期跳过并 warn（不会注册成必然 401 的死路由）；
+- **新版 OpenAI**：支持 pi-ai ≥ 1.4.0 的 `openai` / Sign in with ChatGPT，dsh 路由为 `pi/openai`。保留续期必需的 `clientId`，以及 `scopes` 等 provider 元数据；集合查询仍用 `pi/openai`，实际 SDK 请求恢复原始 OpenAI 身份，以保留 ChatGPT 专用的请求参数处理。不新增旧 `openai-codex` 专用兼容分支。
+- **有 refresh token** → 无论启动时 access 是否过期，始终注入 pi-ai 的**内存** `CredentialStore`。首次请求等待凭据就绪，之后由 SDK 自动续期并复用轮换后的 token；缺省 `expires` 时交 SDK 先刷新。选中的 OAuth 不会被 `models.json.apiKey` 或环境 API key 偷偷替代；刷新失败时请求明确失败。
+- **无 refresh token** → access 尚有效（或无 `expires`）时仅作为静态 key 使用，不具备自动续期能力；已过期则跳过该 provider 并 warn。
+- **无 OAuth handler** → 自定义非目录 provider 或目录内不支持 OAuth 的 provider，持有可刷新 OAuth 时构建期跳过并 warn，不能仅因有 token 就视为可服务。
+- **只读与轮换限制**：新 access / refresh 及 provider 元数据只留当前进程内存，绝不回写 `auth.json`，也不自动重读 pi 登录态。重启后会重读原文件；如果 refresh 已轮换，原文件里的旧值可能失效。pi 与多个 dsh 进程之间不共享刷新锁，避免并行使用同一轮换凭据；必要时重新在 pi 登录后重启 dsh。
+- **刷新网络**：需保证宿主全局 fetch 能访问 OpenAI OAuth 端点，模型请求代理成功不代表刷新成功，配置见上方「代理支持」。
 - `includeOAuth: false` 可整体关闭 OAuth 桥接。
+
+真实验证（2026-10-28，Node 24.14.0 / pi-ai 1.4.0 / undici 7.30.1）：真实 OAuth 刷新 HTTP 200，轮换后连续两次 `gpt-6-sol` 请求均返回 HTTP 200 / `OK`，无重复刷新、无 API key 回退；pi 配置文件前后校验一致。验证使用当前构建产物，不代表已部署到用户 dsh profile 或完成 Web UI 验收。
 
 ## 与 `@deepseek-ai/dsh-llm-pi-ai` 的区别
 
@@ -178,7 +184,7 @@ npm run build       # tsc → dist/（host + Typert 产物），tsdown → dist/
 npm test            # vitest run
 ```
 
-`npm test` 全部使用临时目录 fixture 与 mock（注入的 `execCmd`、fake pi-ai 流），不访问真实 `~/.pi`，不访问网络。
+`npm test` 全部使用临时目录 fixture 与 mock，不访问真实 `~/.pi` 或外网。新版 OpenAI OAuth 回归使用真实 pi-ai 配合拦截的刷新 / Responses fetch，覆盖首次认证、启动后过期、轮换 refresh 复用、进程内并发刷新、刷新失败不回退、ChatGPT 参数处理和面板不泄露元数据。
 
 2026-10-26 另以真实 dsh `0.2.1-rc.2` 临时 Web profile 完成云端文本、user/tool 图片请求及面板 Gateway 四维探测；浏览器实际点击与其他 provider 尚未覆盖。验证范围见[设计文档「背景事实」](docs/spec/2026-08-29-pi-auth-bridge-design.md)。
 

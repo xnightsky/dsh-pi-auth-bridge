@@ -43,6 +43,24 @@ describe('readPiAuth', () => {
     })
   })
 
+  it('preserves OpenAI OAuth metadata without writing back to auth.json', () => {
+    const entry = {
+      type: 'oauth', access: 'synthetic-access', refresh: 'synthetic-refresh', expires: 123,
+      clientId: 'synthetic-client-id', scopes: ['chatgpt.tokens.use.direct'],
+    }
+    write('auth.json', JSON.stringify({ openai: entry }))
+    expect(readPiAuth(dir)?.['openai']).toEqual(entry)
+  })
+
+  it('does not retain invalid common OAuth fields as opaque metadata', () => {
+    write('auth.json', JSON.stringify({
+      openai: { type: 'oauth', access: 'synthetic-access', refresh: 123, expires: 'bad', clientId: 'synthetic-client-id' },
+    }))
+    expect(readPiAuth(dir)?.['openai']).toEqual({
+      type: 'oauth', access: 'synthetic-access', clientId: 'synthetic-client-id',
+    })
+  })
+
   it('throws a PiAuthBridgeError naming the path on corrupt JSON', () => {
     write('auth.json', '{ not json')
     try {

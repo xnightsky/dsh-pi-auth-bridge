@@ -83,11 +83,11 @@ describe('buildRoutes', () => {
     expect(routes[0]?.apiKey).toBe('sk-from-models')
   })
 
-  it('bridges an unexpired OAuth access token as an api key', () => {
-    const auth: Record<string, PiAuthEntry> = { anthropic: { type: 'oauth', access: 'acc-token', refresh: 'ref', expires: NOW + 60_000 } }
+  it('keeps an unexpired OAuth credential refreshable instead of exporting a static key', () => {
+    const auth: Record<string, PiAuthEntry> = { openai: { type: 'oauth', access: 'acc-token', refresh: 'ref', expires: NOW + 60_000 } }
     const routes = buildRoutes(auth, undefined, defaults())
-    expect(routes[0]).toMatchObject({ route: 'pi/anthropic', apiKey: 'acc-token' })
-    expect(routes[0]?.oauth).toBeUndefined()
+    expect(routes[0]).toMatchObject({ route: 'pi/openai', oauth: { access: 'acc-token', refresh: 'ref', expires: NOW + 60_000 } })
+    expect(routes[0]?.apiKey).toBeUndefined()
   })
 
   it('treats an OAuth entry without expires as unexpired', () => {
@@ -101,6 +101,19 @@ describe('buildRoutes', () => {
     const routes = buildRoutes(auth, undefined, defaults())
     expect(routes[0]?.apiKey).toBeUndefined()
     expect(routes[0]?.oauth).toEqual({ access: 'old-acc', refresh: 'ref-token', expires: NOW - 60_000 })
+  })
+
+  it('refreshes an OAuth credential with missing expiry rather than treating it as a permanent key', () => {
+    const routes = buildRoutes({ openai: { type: 'oauth', access: 'acc', refresh: 'ref' } }, undefined, defaults())
+    expect(routes[0]?.apiKey).toBeUndefined()
+    expect(routes[0]?.oauth).toMatchObject({ access: 'acc', refresh: 'ref', expires: 0 })
+  })
+
+  it('does not let a models.json API key override the chosen OAuth credential', () => {
+    const models: PiModelsFile = { providers: { openai: { apiKey: 'sk-must-not-be-used' } } }
+    const routes = buildRoutes({ openai: { type: 'oauth', access: 'acc', refresh: 'ref', expires: NOW - 1 } }, models, defaults())
+    expect(routes[0]?.oauth).toBeDefined()
+    expect(routes[0]?.apiKey).toBeUndefined()
   })
 
   it('skips an expired OAuth entry without a refresh token, with a warn', () => {

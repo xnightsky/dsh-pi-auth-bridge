@@ -11,6 +11,9 @@
  * 已知边界：`google-generative-ai` / `google-vertex` 线路的 pi-ai adapter
  * 显式拒绝自定义 fetch，注入在 adapter 侧按 `model.api` 跳过；这两条线路的
  * 代理需求由 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）启动 dsh 兜底。
+ * SDK 内部的 OAuth 刷新也直接使用全局 fetch，不消费本模块返回的请求级 fetch；
+ * 需要代理时由宿主以相同的原生环境代理配置启动，插件不修改全局状态。
+ * undici 限制在 7.x：8.x 的导入初始化会覆盖 Node 内置的全局代理 dispatcher。
  *
  * @module dsh-pi-auth-bridge/proxy
  */
