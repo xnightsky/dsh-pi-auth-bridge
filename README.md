@@ -55,7 +55,7 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）、`zod`（Typert 产物 schema）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@`0.2.1-rc.2`、`@deepseek-ai/dsh-attachment`@`0.2.1-rc.2`、`@deepseek-ai/dsh-typert-protocol`@`0.2.1-rc.2`、`react`（peer，由 dsh 组合提供；`LlmAdapter` 的 `imageRequestPricing` 沿用基类默认的「不声明图片计价」）。本版本精确支持 DSH `0.2.1-rc.2`：适配独立 `tool` 角色、`developer` 工具增删与延迟声明、原生 system 历史，以及 `imageRequestTarget()` 图片投影契约；不再支持 0.1.6。
+依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）、`zod`（Typert 产物 schema）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@`0.2.1-rc.4`、`@deepseek-ai/dsh-attachment`@`0.2.1-rc.4`、`@deepseek-ai/dsh-typert-protocol`@`0.2.1-rc.4`、`react`（peer，由 dsh 组合提供；`LlmAdapter` 的 `imageRequestPricing` 沿用基类默认的「不声明图片计价」）。本版本精确支持 DSH `0.2.1-rc.4`：适配独立 `tool` 角色、`developer` 工具增删与延迟声明、原生 system 历史，以及 `imageRequestTarget()` 图片投影契约；不再支持 0.1.6。
 
 > Node 版本：pi-ai 1.x 声明 `node >= 22.19`，请使用 Node 22.19+，并与 dsh 的运行时要求保持一致。
 
@@ -199,6 +199,7 @@ npm test            # vitest run
 `npm test` 全部使用临时目录 fixture 与 mock，不访问真实 `~/.pi` 或外网。新版 OpenAI OAuth 回归使用真实 pi-ai 配合拦截的刷新 / Responses fetch，覆盖首次认证、启动后过期、轮换 refresh 复用、进程内并发刷新、刷新失败不回退、ChatGPT 参数处理和面板不泄露元数据。
 
 2026-10-26 另以真实 dsh `0.2.1-rc.2` 临时 Web profile 完成云端文本、user/tool 图片请求及面板 Gateway 四维探测；浏览器实际点击与其他 provider 尚未覆盖。验证范围见[设计文档「背景事实」](docs/spec/2026-08-29-pi-auth-bridge-design.md)。
+2026-11-03 另以用户桌面 App 实际运行的 dsh `0.2.1-rc.4`（Node v24.21.0）独立临时 Web profile 验证：本地 link 安装后，rc.4 宿主启动日志无 `skipping profile bundle ... incompatible`，输出 `pi-auth-bridge: bridged 4 route(s) from ...`；经宿主真实 `piAuthBridge/status` Typert 端点返回 HTTP 200，状态为 `phase=bridged`、三项启动自检均 `ok`，4 条可服务路由的面板模型清单分别回填 4/2/42/305 项；随后对 `pi/deepseek` / `deepseek-flash` 执行真实文本 probe，HTTP 200、921 ms、`finish=stop`、`usage ✓`、回复 `Pong`，状态服务缓存结果与宿主日志一致。浏览器点击、其余能力维度和云端对话未覆盖；`~/.pi` 的 `auth.json` / `models.json` 前后 SHA-256 一致，临时宿主与数据已清理。
 
 ## 许可证
 
