@@ -4,7 +4,7 @@
  * face、schemas/model/invocations 各段的必填字段。dsh-typert-loader 在
  * Loader 组合中自动发现本包的 `./typert` 导出并注册进 `ctx.typert`。
  *
- * @module dsh-pi-auth-bridge/typert.host
+ * @module @xnightsky/dsh-pi-auth-bridge/typert.host
  */
 import { probeInvocation, statusInvocation, TYPERT_PACKAGE } from './common.js'
 

@@ -9,7 +9,7 @@
  * 诊断串（终态/usage/回复预览/target 形状/异常类型），并同步写 host 日志
  * ——出问题时不必重跑即可回溯。
  *
- * @module dsh-pi-auth-bridge/probe
+ * @module @xnightsky/dsh-pi-auth-bridge/probe
  */
 import { Buffer } from 'node:buffer'
 import {

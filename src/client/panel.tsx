@@ -3,7 +3,7 @@
  * 交叉探测矩阵（每模型行内测试 / 全部测试）、插件自健康（版本表、启动
  * 自检、近期请求错误）。面板只读，探测是用户点击触发的真实 API 调用。
  *
- * @module dsh-pi-auth-bridge/client-panel
+ * @module @xnightsky/dsh-pi-auth-bridge/client-panel
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { mergeProbeReport, probeKey, type BridgeModelStatus, type BridgeRouteStatus, type BridgeStatus, type ModelProbeReport, type ProbeCapability, type ProbeRequest, type ProbeResult, type ProbeVerdict } from '../panel/status.js'

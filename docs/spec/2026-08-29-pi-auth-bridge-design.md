@@ -1,4 +1,4 @@
-# pi-auth-bridge (dsh-pi-auth-bridge) 设计
+# pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge) 设计
 
 > 状态：已落地（v0.1.0）
 >
@@ -62,13 +62,13 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 
 ## 1. 项目形态
 
-- 独立 npm 包 `dsh-pi-auth-bridge`，ESM，TypeScript；**双面（dual-face）插件**：host 半区（cordis 插件）+ client 半区（Settings 面板区块，见 §5）。
+- 独立 npm 包 `@xnightsky/dsh-pi-auth-bridge`，ESM，TypeScript；**双面（dual-face）插件**：host 半区（cordis 插件）+ client 半区（Settings 面板区块，见 §5）。
 - dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`, `undici`（§2.5 代理 fetch；对齐 pi CLI 同款）, `@deepseek-ai/dsh-typert-protocol`（§5 状态服务基类与 `@Remote` 装饰器）, `zod`（§5 生成的 remote-client 产物 import `zod`）
 - peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@0.2.1-rc.2, `@deepseek-ai/dsh-attachment`@0.2.1-rc.2, `@deepseek-ai/dsh-typert-protocol`@0.2.1-rc.2, `react`（client 半区组件，宿主 web 提供）
 - devDependencies: `typescript`, `vitest`, `@types/node`, `tsdown`（§5 client 打包）, `react`/`react-dom`/`@types/react`/`@types/react-dom` + `@testing-library/react` + `jsdom`（client 测试）, `@deepseek-ai/dsh-typert-registry`（产物回归测试）, `@deepseek-ai/dsh-api-gateway` / `@deepseek-ai/dsh-client-ui-renderer` / `@deepseek-ai/dsh-client-ui-settings`（client 半区类型合并来源）
 - 构建：`tsc` → `dist/`（ESM + .d.ts，含手写 Typert 产物）；`tsdown` → `dist/client.js`（CJS 懒加载模块表，zod 内联）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
 - 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `pi-auth-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。client 半区声明 `exports["./client"]` + `dsh.client.inject = ['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-renderer']`；Typert 产物声明 `exports["./typert"]` / `exports["./remote"]`。
-- 分发与版本：git 直装（`prepare: npm run build` 在安装时构建 `dist/`）+ GitHub Release（push `v*` tag 触发 `.github/workflows/release.yml`，附 `npm pack` 产物）；`npm version` 手动发版，真相源 = `package.json` + `v*` tag；不发布 npm registry。
+- 分发与版本：npm registry（`@xnightsky/dsh-pi-auth-bridge`，public，push `v*` tag 的流水线自动 `npm publish`）+ git 直装（`prepare: npm run build` 在安装时构建 `dist/`）+ GitHub Release（同一流水线生成 Release notes 并附 `npm pack` 产物）；`npm version` 手动发版，真相源 = `package.json` + `v*` tag；tag 与 package version 不一致时流水线失败。
 
 ## 2. 模块划分
 

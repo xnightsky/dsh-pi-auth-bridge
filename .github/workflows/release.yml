@@ -1,6 +1,6 @@
 # Release 流水线：推送 v* tag 触发
-# 流程：安装依赖 → 类型检查 → 测试 → 构建 → npm pack
-#   → changelogithub 按 Conventional Commits 生成/更新 Release notes → 上传 .tgz 产物
+# 流程：校验 tag/version → 安装依赖 → 类型检查 → 测试 → 构建 → npm pack
+#   → npm publish → changelogithub 生成/更新 Release notes → 上传 .tgz 产物
 # 发版约定见 AGENTS.md「Git」一节（npm version 手动发版）
 name: Release
 
@@ -25,12 +25,26 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify tag matches package version
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "v$PACKAGE_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version v$PACKAGE_VERSION"
+            exit 1
+          fi
 
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
       - run: npm pack
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # 按 Conventional Commits 分组生成 Release notes（无 PR 也可），已存在则更新
       - name: Generate release notes

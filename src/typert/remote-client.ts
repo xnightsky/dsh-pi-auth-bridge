@@ -4,7 +4,7 @@
  * 命名空间的类型化调用代理。类型锚定在协议包的
  * `TypertRemoteContribution` 上，格式漂移由 typecheck 拦截。
  *
- * @module dsh-pi-auth-bridge/typert.remote-client
+ * @module @xnightsky/dsh-pi-auth-bridge/typert.remote-client
  */
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type { BridgeStatus, ProbeRequest, ProbeResult } from '../panel/status.js'

@@ -5,7 +5,7 @@
  * 本模块对 pi 目录的一切操作都是只读的：绝不创建、修改或删除任何文件。
  * 解析出的机密只存在于内存中。
  *
- * @module dsh-pi-auth-bridge/pi-auth
+ * @module @xnightsky/dsh-pi-auth-bridge/pi-auth
  */
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'

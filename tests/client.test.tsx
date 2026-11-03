@@ -200,7 +200,7 @@ describe('client apply', () => {
 
     // 主插件只挂载贡献；面板注册在 park 于 remote.piAuthBridge 的子插件里。
     expect(mounted).toHaveLength(1)
-    expect((mounted[0] as { package: string }).package).toBe('dsh-pi-auth-bridge')
+    expect((mounted[0] as { package: string }).package).toBe('@xnightsky/dsh-pi-auth-bridge')
     expect(plugged).toHaveLength(1)
     expect(plugged[0]?.inject).toContain('remote.piAuthBridge')
   })

@@ -4,7 +4,7 @@
  * 面板却毫无迹象——插件自身健康必须可测、可见（设计文档 §5.8）。
  * 不变量：全部检查均为本地纯计算，绝不触网；单项失败只记录不抛出。
  *
- * @module dsh-pi-auth-bridge/self-health
+ * @module @xnightsky/dsh-pi-auth-bridge/self-health
  */
 import { createRequire } from 'node:module'
 import type { Context } from '@deepseek-ai/cordis'

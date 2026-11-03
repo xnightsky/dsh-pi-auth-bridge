@@ -11,7 +11,7 @@
  */
 import { defineConfig } from 'tsdown'
 
-const CLIENT_ID = 'dsh-pi-auth-bridge'
+const CLIENT_ID = '@xnightsky/dsh-pi-auth-bridge'
 
 export default defineConfig({
   entry: { client: 'src/client/index.tsx' },

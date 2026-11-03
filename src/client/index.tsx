@@ -4,7 +4,7 @@
  * `piAuthBridge/status` 拉取桥状态快照、`piAuthBridge/probe` 触发能力探测；
  * 呈现层在 ./panel.js。面板只读，探测是用户点击触发的真实 API 调用。
  *
- * @module dsh-pi-auth-bridge/client
+ * @module @xnightsky/dsh-pi-auth-bridge/client
  */
 import type { Context } from '@deepseek-ai/cordis'
 // 类型合并来源：ctx.remote（gateway）、ctx.slots（renderer）、settings.section（settings）。

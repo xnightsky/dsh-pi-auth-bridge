@@ -15,7 +15,7 @@
  * 需要代理时由宿主以相同的原生环境代理配置启动，插件不修改全局状态。
  * undici 限制在 7.x：8.x 的导入初始化会覆盖 Node 内置的全局代理 dispatcher。
  *
- * @module dsh-pi-auth-bridge/proxy
+ * @module @xnightsky/dsh-pi-auth-bridge/proxy
  */
 import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici'
 import type { FetchFunction } from '@earendil-works/pi-ai'

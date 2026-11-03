@@ -10,13 +10,13 @@
  * （`InvocationDescriptor` / `TypertRemoteContribution`，typecheck 期校验），
  * 另由 tests/typert-artifacts.test.ts 用真实 registry 与真实状态快照回归。
  *
- * @module dsh-pi-auth-bridge/typert-common
+ * @module @xnightsky/dsh-pi-auth-bridge/typert-common
  */
 import { z } from 'zod'
 import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol'
 
 /** 包名：TYPERT 清单的属主校验（`manifest.package === pkgName`）以此为准。 */
-export const TYPERT_PACKAGE = 'dsh-pi-auth-bridge'
+export const TYPERT_PACKAGE = '@xnightsky/dsh-pi-auth-bridge'
 
 /** `BridgeModelStatus` 的 zod 投影。 */
 const modelStatusSchema = z.object({
@@ -102,7 +102,7 @@ const probeResultSchema = z.discriminatedUnion('ok', [
 
 /** `piAuthBridge/status` 调用描述符：无参数、直接接收者、严格结果编解码。 */
 export const statusInvocation: InvocationDescriptor = {
-  id: 'dsh-pi-auth-bridge#piAuthBridge/status',
+  id: '@xnightsky/dsh-pi-auth-bridge#piAuthBridge/status',
   service: 'piAuthBridge',
   namespace: 'piAuthBridge',
   method: 'status',
@@ -110,7 +110,7 @@ export const statusInvocation: InvocationDescriptor = {
   parameters: [],
   result: {
     mode: 'strict',
-    typeSymbol: 'dsh-pi-auth-bridge#BridgeStatus',
+    typeSymbol: '@xnightsky/dsh-pi-auth-bridge#BridgeStatus',
     create: () => bridgeStatusSchema,
   },
   sourceLocation: { file: 'src/panel/status-service.ts', line: 38, column: 3 },
@@ -118,7 +118,7 @@ export const statusInvocation: InvocationDescriptor = {
 
 /** `piAuthBridge/probe` 调用描述符：单参数（JSON request）、直接接收者、严格编解码。 */
 export const probeInvocation: InvocationDescriptor = {
-  id: 'dsh-pi-auth-bridge#piAuthBridge/probe',
+  id: '@xnightsky/dsh-pi-auth-bridge#piAuthBridge/probe',
   service: 'piAuthBridge',
   namespace: 'piAuthBridge',
   method: 'probe',
@@ -130,14 +130,14 @@ export const probeInvocation: InvocationDescriptor = {
       source: 'json',
       codec: {
         mode: 'strict',
-        typeSymbol: 'dsh-pi-auth-bridge#ProbeRequest',
+        typeSymbol: '@xnightsky/dsh-pi-auth-bridge#ProbeRequest',
         create: () => probeRequestSchema,
       },
     },
   ],
   result: {
     mode: 'strict',
-    typeSymbol: 'dsh-pi-auth-bridge#ProbeResult',
+    typeSymbol: '@xnightsky/dsh-pi-auth-bridge#ProbeResult',
     create: () => probeResultSchema,
   },
   sourceLocation: { file: 'src/panel/status-service.ts', line: 50, column: 3 },

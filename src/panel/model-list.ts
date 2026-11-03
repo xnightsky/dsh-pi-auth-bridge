@@ -3,7 +3,7 @@
  * （含 contextWindow，经 `listModels`/`resolveModel`），回填状态盒供面板
  * 展示。纯本地读取、无网络；失败仅 warn，不影响桥本身。
  *
- * @module dsh-pi-auth-bridge/model-list
+ * @module @xnightsky/dsh-pi-auth-bridge/model-list
  */
 import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import type { PiAuthBridgeAdapter } from '../bridge/adapter.js'

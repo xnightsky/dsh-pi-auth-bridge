@@ -1,4 +1,4 @@
-# pi-auth-bridge (dsh-pi-auth-bridge)
+# pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge)
 
 > [中文](./README.md) | **English**
 
@@ -10,9 +10,21 @@ Converts the local **pi** (pi-mono / Pi coding agent) auth configuration (`auth.
 
 ## Installation
 
-### Git install (recommended, no clone needed)
+### npm install (recommended)
 
-`dsh plugin add` is essentially a pnpm forwarder, so you can install a specific version straight from a git tag:
+Published tarballs already contain the build output, so no `allowBuilds` entry is required:
+
+```bash
+# Latest release
+dsh plugin --profile <name> add @xnightsky/dsh-pi-auth-bridge
+
+# Pin a version
+dsh plugin --profile <name> add @xnightsky/dsh-pi-auth-bridge@<version>
+```
+
+### Git install (no clone needed)
+
+`dsh plugin add` is essentially a pnpm forwarder, so you can also install a specific version straight from a git tag:
 
 ```bash
 # Pin a version tag (recommended, reproducible)
@@ -28,7 +40,7 @@ Git installs build `dist/` via the package's `prepare` script. pnpm blocks depen
 
    ```yaml
    allowBuilds:
-     dsh-pi-auth-bridge: true
+     "@xnightsky/dsh-pi-auth-bridge": true
    ```
 
 2. `ERR_PNPM_IGNORED_BUILDS` next, or merely an `Ignored build scripts` warning (pi-ai's transitive deps `@google/genai` / `protobufjs` ship build scripts) → if pnpm has written placeholder entries into the same file, flip them to `true`; otherwise add a line manually in the same format, then re-run once more.
@@ -54,7 +66,7 @@ Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch), `zod` (
 This package follows the official dsh plugin convention: the entry point exports `name` / `inject: ['llm']` / `Config` / `apply`, and `package.json` declares `dsh.bundle.patch` pointing at the root `cordis.patch.yml` (zero-config mount by default, id `pi-auth-bridge`). Add it to a profile:
 
 ```bash
-dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # local path or git URL (see Installation above)
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # local path; see Installation above for npm/git installs
 ```
 
 **Restart the dsh process** after adding (Ctrl+C, then `dsh --profile <name>` again) — the routes only appear in the model list after a restart. A startup log line `pi-auth-bridge: bridged N route(s) from ...` means the bridge is live; if you only see warnings, follow their hints to check the pi directory and credentials.
@@ -64,7 +76,7 @@ To override the config, use the same id in the profile-level `cordis.patch.yml`:
 ```yaml
 - insert:
     - id: pi-auth-bridge
-      name: dsh-pi-auth-bridge
+      name: "@xnightsky/dsh-pi-auth-bridge"
       config:
         # piDir: /custom/pi/agent        # override the pi config directory
         # providers: [anthropic, openai] # bridge only whitelisted providers

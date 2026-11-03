@@ -11,7 +11,7 @@
  * - 流请求等待凭据播种完成，不能因初始化竞态回退到环境认证。
  * - 任何不可服务的路由都跳过并 warn，绝不静默失败。
  *
- * @module dsh-pi-auth-bridge/provider
+ * @module @xnightsky/dsh-pi-auth-bridge/provider
  */
 import {
   createModels,

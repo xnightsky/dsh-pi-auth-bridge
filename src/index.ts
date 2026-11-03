@@ -20,7 +20,7 @@
  * - insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/src/index.ts' }]
  * ```
  *
- * @module dsh-pi-auth-bridge
+ * @module @xnightsky/dsh-pi-auth-bridge
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmRuntime } from '@deepseek-ai/dsh-llm'

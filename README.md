@@ -1,4 +1,4 @@
-# pi-auth-bridge (dsh-pi-auth-bridge)
+# pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge)
 
 > **中文** | [English](./README.en.md)
 
@@ -10,9 +10,21 @@
 
 ## 安装
 
-### git 安装（推荐，免 clone）
+### npm 安装（推荐）
 
-`dsh plugin add` 本质是 pnpm 转发，可直接按 git tag 安装指定版本：
+发布版包内已包含构建产物，安装时不需要额外的 `allowBuilds`：
+
+```bash
+# 最新发布版
+dsh plugin --profile <name> add @xnightsky/dsh-pi-auth-bridge
+
+# 固定版本
+dsh plugin --profile <name> add @xnightsky/dsh-pi-auth-bridge@<version>
+```
+
+### git 安装（免 clone）
+
+`dsh plugin add` 本质是 pnpm 转发，也可直接从 git tag 安装指定版本：
 
 ```bash
 # 指定版本 tag（推荐，可复现）
@@ -28,7 +40,7 @@ git 安装由包的 `prepare` 脚本自动构建 `dist/`。pnpm 默认拦截依�
 
    ```yaml
    allowBuilds:
-     dsh-pi-auth-bridge: true
+     "@xnightsky/dsh-pi-auth-bridge": true
    ```
 
 2. 再报 `ERR_PNPM_IGNORED_BUILDS`，或仅出现 `Ignored build scripts` 警告（pi-ai 的传递依赖 `@google/genai` / `protobufjs` 带构建脚本）→ 若 pnpm 已把占位条目写进同一文件，把值改成 `true`；没有占位条目就按上面同样的格式手动补一行，再重跑一次。
@@ -54,7 +66,7 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 本包遵循 dsh 插件官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`，`package.json` 声明 `dsh.bundle.patch` 指向根目录的 `cordis.patch.yml`（默认零配置挂载，id 为 `pi-auth-bridge`）。装入 profile：
 
 ```bash
-dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或 git URL 均可（git 安装见上方「安装」）
+dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径；npm/git 安装见上方「安装」
 ```
 
 装入后需**重启 dsh 进程**（Ctrl+C 后重跑 `dsh --profile <name>`）才会出现在模型列表。启动日志出现 `pi-auth-bridge: bridged N route(s) from ...` 即桥接成功；只有 warn 时按提示检查 pi 目录与凭据。
@@ -64,7 +76,7 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径或
 ```yaml
 - insert:
     - id: pi-auth-bridge
-      name: dsh-pi-auth-bridge
+      name: "@xnightsky/dsh-pi-auth-bridge"
       config:
         # piDir: /custom/pi/agent        # 覆盖 pi 配置目录
         # providers: [anthropic, openai] # 只桥接白名单内的 provider

@@ -9,7 +9,7 @@
  *   chunk——harness 协议的第二条错误路径。
  * - 事件流没有 done/error 就结束了 → 抛 `LlmError('STREAM_CLOSED')`。
  *
- * @module dsh-pi-auth-bridge/stream
+ * @module @xnightsky/dsh-pi-auth-bridge/stream
  */
 import {
   CONTEXT_WINDOW_EXCEEDED_CODE,

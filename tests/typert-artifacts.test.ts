@@ -25,14 +25,14 @@ describe('typert artifacts', () => {
     // 这里至少锁定 registry 侧（包身份/schema/invocation/endpoint 唯一性与结构）。
     const dispose = ctx.typert.register(TYPERT as never)
     const endpoints = ctx.typert.local.list().map((descriptor) => descriptor.id)
-    expect(endpoints).toContain('dsh-pi-auth-bridge#piAuthBridge/status')
-    expect(endpoints).toContain('dsh-pi-auth-bridge#piAuthBridge/probe')
+    expect(endpoints).toContain('@xnightsky/dsh-pi-auth-bridge#piAuthBridge/status')
+    expect(endpoints).toContain('@xnightsky/dsh-pi-auth-bridge#piAuthBridge/probe')
     await dispose()
     expect(ctx.typert.local.list()).toHaveLength(0)
   })
 
   it('remote contribution mounts the same descriptors the host registers', () => {
-    expect(TYPERT_REMOTE.package).toBe('dsh-pi-auth-bridge')
+    expect(TYPERT_REMOTE.package).toBe('@xnightsky/dsh-pi-auth-bridge')
     expect(TYPERT_REMOTE.descriptors).toEqual([statusInvocation, probeInvocation])
   })
 

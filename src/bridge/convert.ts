@@ -2,7 +2,7 @@
  * 将 pi 的 `auth.json` + `models.json` 纯转换为适配器可提供的路由定义。
  * 不 import pi-ai，除注入的取值解析器外无任何 I/O，整个映射可单元测试。
  *
- * @module dsh-pi-auth-bridge/convert
+ * @module @xnightsky/dsh-pi-auth-bridge/convert
  */
 import type { OAuthCredentials } from '@earendil-works/pi-ai'
 import type { PiAuthEntry, PiModelDef, PiModelsFile, PiValueResolver, Warn } from '../pi/auth.js'

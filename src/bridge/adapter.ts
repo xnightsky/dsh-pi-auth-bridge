@@ -18,7 +18,7 @@
  * - `authHeader: true` 的路由以 `Authorization: Bearer <key>` 头发送 key，
  *   不再走 pi-ai 的 apiKey override。
  *
- * @module dsh-pi-auth-bridge/adapter
+ * @module @xnightsky/dsh-pi-auth-bridge/adapter
  */
 import {
   getSupportedThinkingLevels,

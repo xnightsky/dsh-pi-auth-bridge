@@ -6,7 +6,7 @@
  * `declare module '@deepseek-ai/cordis'` 的 Context 增广被发现，`@Remote`
  * 使用 TC39 标准装饰器（不要开 `experimentalDecorators`）。
  *
- * @module dsh-pi-auth-bridge/status-service
+ * @module @xnightsky/dsh-pi-auth-bridge/status-service
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'

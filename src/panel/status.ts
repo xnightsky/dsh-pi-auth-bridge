@@ -5,7 +5,7 @@
  * 安全不变量：状态快照绝不包含凭据本体（api key / OAuth token / refresh
  * token），也不含 `$ENV` / `!cmd` 原始表达式——只记录凭据类型。
  *
- * @module dsh-pi-auth-bridge/status
+ * @module @xnightsky/dsh-pi-auth-bridge/status
  */
 import type { RouteDef } from '../bridge/convert.js'
 import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
