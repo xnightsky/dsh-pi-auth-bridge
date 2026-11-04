@@ -105,6 +105,8 @@ Bypass the bundle mechanism and `insert` directly in any cordis config layer; bo
 
 Once mounted, route names carry the fixed `pi/<providerId>` prefix (e.g. `pi/openai`), and group titles are always prefixed with `Pi · ` (e.g. `Pi · OpenAI`) — the dsh web model picker has only two levels ("group → model"), so pi cannot be a true third-level channel; its origin is expressed jointly by the route prefix and the group title, plainly distinguishable from dsh-native providers. The model catalog comes from the pi-ai built-in catalog or custom declarations in `models.json`.
 
+**Catalog version**: the plugin depends on `@earendil-works/pi-ai@^1.5.0`, whose built-in Kimi catalog includes `k3.1-pro` and `k3.1-pro-highspeed`. It uses its own installed SDK, not the output of `pi --list-models`; upgrading global pi alone does not update the plugin catalog. If pi lists a model missing from the Bridge panel, update the plugin and its dependencies, then restart dsh. Catalog availability does not imply subagent authorization or a verified live call.
+
 ## How it works
 
 ```
@@ -219,6 +221,8 @@ npm test            # vitest run
 `npm test` uses temporary fixtures and mocks, never the real `~/.pi` or external network. New OpenAI OAuth regressions exercise real pi-ai with intercepted refresh/Responses fetches: first-request auth, expiry after startup, rotated refresh reuse, same-process concurrency, no fallback on refresh failure, ChatGPT request handling, and metadata exclusion from panel snapshots.
 
 DSH baseline regressions also verify agreement between the package manifest, lockfile, installed versions, and both READMEs, preventing stale local dependencies from being mistaken for a new-host validation.
+
+pi-ai 1.5.0 upgrade validation: three new regressions cover both K3.1 models in adapter listings, metadata resolution, and panel population; all failed before the upgrade and passed afterward. Type checking, all 205 tests, the build, and dependency-tree checks passed, as did an offline Kimi catalog smoke check using built artifacts. The user subsequently confirmed that the model visibility fix works. The agent did not change user configuration; live K3.1 cloud calls and full UI acceptance remain unverified.
 
 2026-11-04 rc.5 validation: type checking, all 175 tests, and the build passed. The peer range was then expanded to rc.4 / rc.5 while retaining rc.5 as the development baseline. Built artifacts also passed a text-stream smoke check using real rc.5 Cordis / LlmRuntime, real pi-ai, and an in-memory upstream stub, covering auth/attribution headers, usage before finish, and route disposal. No real credentials or user configuration were touched. The rc.5 desktop UI, actual profile installation, cloud calls, and end-to-end image attachments remain unverified. The rc.2/rc.4 records below are historical, not rc.5 acceptance evidence.
 

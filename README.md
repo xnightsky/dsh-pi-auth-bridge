@@ -105,6 +105,8 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径；
 
 挂载后，路由名固定为 `pi/<providerId>`（如 `pi/openai`），分组标题恒以「Pi · 」开头（如 `Pi · OpenAI`）——dsh web 的模型选择器只有「分组 → 模型」两级，pi 无法成为真正的第三级渠道，出处由路由前缀与分组标题共同表达，与 dsh 原生 provider 一眼可分。模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。
 
+**模型目录版本**：插件依赖 `@earendil-works/pi-ai@^1.5.0`，内置 Kimi 目录包含 `k3.1-pro` 和 `k3.1-pro-highspeed`。插件使用自身安装的 SDK，不读取 `pi --list-models` 输出；仅升级全局 pi 不会同步插件目录。若 pi 中可见而 Bridge 面板缺失，请更新插件及其依赖并重启 dsh。模型进入目录不等于已获子智能体授权或真实调用验证。
+
 ## 工作原理
 
 ```
@@ -219,6 +221,8 @@ npm test            # vitest run
 `npm test` 全部使用临时目录 fixture 与 mock，不访问真实 `~/.pi` 或外网。新版 OpenAI OAuth 回归使用真实 pi-ai 配合拦截的刷新 / Responses fetch，覆盖首次认证、启动后过期、轮换 refresh 复用、进程内并发刷新、刷新失败不回退、ChatGPT 参数处理和面板不泄露元数据。
 
 DSH 基线回归同时检查包清单、lockfile、实际安装版本和中英文文档一致，避免以旧的本地依赖误验新宿主。
+
+pi-ai 1.5.0 升级验证：两个 K3.1 的适配器模型列表、元数据与面板回填新增 3 项回归，升级前失败、升级后通过；类型检查、205 项测试、构建及依赖树检查全部通过。构建产物的离线 Kimi 目录冒烟通过，用户随后确认模型显示修复有效；代理未修改用户配置，真实 K3.1 云端调用与完整 UI 验收仍未覆盖。
 
 2026-11-04 对接 `0.2.1-rc.5`：类型检查、175 项测试与构建通过；随后 peer 放宽至 rc.4 / rc.5，保留 rc.5 开发测试基线。构建产物经真实 rc.5 Cordis / LlmRuntime、真实 pi-ai 与内存模拟上游通过文本流冒烟（含认证/归因头、usage→finish、路由释放）。本轮未使用真实凭据、未修改用户配置；尚未验收 rc.5 桌面 UI、实际 profile 安装、云端及图片附件端到端。下列 rc.2/rc.4 记录仅为历史验证，不替代 rc.5 验收。
 

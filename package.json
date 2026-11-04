@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",
-    "@earendil-works/pi-ai": "^1.4.0",
+    "@earendil-works/pi-ai": "^1.5.0",
     "undici": "^7.30.1",
     "zod": "^4.6.5"
   },
