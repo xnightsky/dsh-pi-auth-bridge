@@ -1,5 +1,5 @@
 /**
- * pi-auth-bridge：一个 dsh 插件，把本机 pi（Pi coding agent）安装的认证信息
+ * dsh-pi-auth-bridge：一个 dsh 插件，把本机 pi（Pi coding agent）安装的认证信息
  * （`auth.json` + `models.json`）桥接为 dsh 的 LLM 路由。
  *
  * 零配置、仅存于内存：凭据在挂载时从 pi 的文件读取，绝不写到任何地方
@@ -17,7 +17,7 @@
  *
  * ```yaml
  * # cordis.yml
- * - insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/src/index.ts' }]
+ * - insert: [{ id: dsh-pi-auth-bridge, name: '/abs/path/dsh-pi-auth-bridge/src/index.ts' }]
  * ```
  *
  * @module @xnightsky/dsh-pi-auth-bridge
@@ -65,7 +65,7 @@ export {
 export type { BridgeEmptyReason, BridgeRouteStatus, BridgeStatus, BridgeStatusBox } from './panel/status.js'
 export { PiAuthBridgeStatusService } from './panel/status-service.js'
 
-export const name = 'pi-auth-bridge'
+export const name = 'dsh-pi-auth-bridge'
 
 /**
  * LLM 适配器插件的官方约定：声明对 `llm` 服务（`@deepseek-ai/dsh-llm` 的
@@ -74,7 +74,7 @@ export const name = 'pi-auth-bridge'
  */
 export const inject = ['llm']
 
-/** pi-auth-bridge 插件配置。 */
+/** dsh-pi-auth-bridge 插件配置。 */
 export interface Config {
   /** 覆盖 pi 配置目录（默认 `$PI_CODING_AGENT_DIR` 或 `~/.pi/agent`）。 */
   piDir?: string
@@ -108,7 +108,7 @@ function resolveProxyFetch(config: Config, info: (message: string) => void): Fet
   if (config.proxy === false) return undefined
   const proxyFetch = createEnvProxyFetch()
   if (proxyFetch !== undefined) {
-    info('pi-auth-bridge: proxy environment detected; bridged requests will use the configured proxy (google-* routes excluded; use NODE_USE_ENV_PROXY=1 for those)')
+    info('dsh-pi-auth-bridge: proxy environment detected; bridged requests will use the configured proxy (google-* routes excluded; use NODE_USE_ENV_PROXY=1 for those)')
   }
   return proxyFetch
 }
@@ -138,14 +138,14 @@ export function apply(ctx: Context, config: Config): void {
 
   const llm = ctx.llm as LlmRuntime | undefined
   if (llm === undefined) {
-    warn('pi-auth-bridge: the llm service is not mounted in this composition; plugin mounted with no routes')
+    warn('dsh-pi-auth-bridge: the llm service is not mounted in this composition; plugin mounted with no routes')
     box.current = emptyStatus('llm-missing', 'the llm service is not mounted in this composition', { proxy, warnings, ...health })
     return
   }
 
   const dir = locatePiDir(config.piDir === undefined ? {} : { piDir: config.piDir })
   if (dir === undefined) {
-    warn('pi-auth-bridge: pi configuration directory not found (looked at $PI_CODING_AGENT_DIR and ~/.pi/agent); plugin mounted with no routes')
+    warn('dsh-pi-auth-bridge: pi configuration directory not found (looked at $PI_CODING_AGENT_DIR and ~/.pi/agent); plugin mounted with no routes')
     box.current = emptyStatus('pi-dir-not-found', 'looked at $PI_CODING_AGENT_DIR and ~/.pi/agent', { proxy, warnings, ...health })
     return
   }
@@ -157,7 +157,7 @@ export function apply(ctx: Context, config: Config): void {
     models = readPiModels(dir, { warn })
   } catch (error) {
     // 损坏的 pi 文件只会禁用桥接器，绝不影响组合。
-    warn(`pi-auth-bridge: cannot load pi configuration: ${(error as Error).message}; plugin mounted with no routes`)
+    warn(`dsh-pi-auth-bridge: cannot load pi configuration: ${(error as Error).message}; plugin mounted with no routes`)
     box.current = emptyStatus('pi-config-unreadable', (error as Error).message, { piDir: dir, proxy, warnings, ...health })
     return
   }
@@ -171,7 +171,7 @@ export function apply(ctx: Context, config: Config): void {
     warn,
   })
   if (routes.length === 0) {
-    warn(`pi-auth-bridge: no usable provider credentials found in ${dir}; plugin mounted with no routes`)
+    warn(`dsh-pi-auth-bridge: no usable provider credentials found in ${dir}; plugin mounted with no routes`)
     box.current = emptyStatus('no-credentials', `no usable provider credentials found in ${dir}`, { piDir: dir, proxy, warnings, ...health })
     return
   }
@@ -185,7 +185,7 @@ export function apply(ctx: Context, config: Config): void {
     recordError: (entry) => recordRequestError(box, entry),
   })
   if (adapter.routes.length === 0) {
-    warn(`pi-auth-bridge: none of the ${routes.length} candidate route(s) in ${dir} can be served; plugin mounted with no routes`)
+    warn(`dsh-pi-auth-bridge: none of the ${routes.length} candidate route(s) in ${dir} can be served; plugin mounted with no routes`)
     box.current = emptyStatus('no-servable-routes', `none of the ${routes.length} candidate route(s) can be served`, { piDir: dir, proxy, warnings, ...health })
     return
   }
@@ -195,7 +195,7 @@ export function apply(ctx: Context, config: Config): void {
   // fiber-disposal hook (registerAdapter is also fiber-disposed itself).
   ctx.effect(() => () => {
     handle()
-  }, 'pi-auth-bridge: unregister llm adapter')
+  }, 'dsh-pi-auth-bridge: unregister llm adapter')
   // 快照持有 warnings 的活引用：注册后再产生的警告也会进入面板。
   box.current = bridgedStatus({
     piDir: dir,
@@ -218,6 +218,6 @@ export function apply(ctx: Context, config: Config): void {
   }
   // 模型清单异步填充（pi-ai 目录为本地读取，无网络）；失败仅 warn。
   void fillModelLists(adapter, box, warn)
-  logger.info(`pi-auth-bridge: bridged ${adapter.routes.length} route(s) from ${dir}: ${adapter.routes.join(', ')}`)
+  logger.info(`dsh-pi-auth-bridge: bridged ${adapter.routes.length} route(s) from ${dir}: ${adapter.routes.join(', ')}`)
 }
 

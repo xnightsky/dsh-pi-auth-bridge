@@ -14,7 +14,7 @@ import type { BridgeStatus, BridgeStatusBox, ProbeRequest, ProbeResult } from '.
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** pi-auth-bridge 的桥状态服务（只读快照，无凭据本体）。 */
+    /** dsh-pi-auth-bridge 的桥状态服务（只读快照，无凭据本体）。 */
     piAuthBridge: PiAuthBridgeStatusService
   }
 }
@@ -50,7 +50,7 @@ export class PiAuthBridgeStatusService extends TypertRemoteService {
         route: request.route,
         model: request.model,
         code: 'not-bridged',
-        message: 'pi-auth-bridge is mounted empty; no adapter available for probing',
+        message: 'dsh-pi-auth-bridge is mounted empty; no adapter available for probing',
       })
     }
     return handler(request)

@@ -13,7 +13,7 @@ import {
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'pi-auth-bridge-test-'))
+  dir = mkdtempSync(join(tmpdir(), 'dsh-pi-auth-bridge-test-'))
 })
 
 afterEach(() => {

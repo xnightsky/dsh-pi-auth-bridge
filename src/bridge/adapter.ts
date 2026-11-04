@@ -64,7 +64,7 @@ function requestHeaders(route: RouteDef): Record<string, string> {
 function resolveReasoningLevel(model: Model<Api>, effort: string | undefined): ModelThinkingLevel | undefined {
   if (effort === undefined) return undefined
   if (getSupportedThinkingLevels(model).some((level) => level === effort)) return effort as ModelThinkingLevel
-  throw new LlmError(`pi-auth-bridge provider "${model.provider}" model "${model.id}" does not support reasoning effort "${effort}"`, 'UNSUPPORTED_OPTION')
+  throw new LlmError(`dsh-pi-auth-bridge provider "${model.provider}" model "${model.id}" does not support reasoning effort "${effort}"`, 'UNSUPPORTED_OPTION')
 }
 
 /** 一个模型可选的 reasoning effort 列表；不支持 reasoning 则为空。 */
@@ -129,7 +129,7 @@ const ANTHROPIC_TOOL_UPDATE_PLACEHOLDER: NonNullable<GenerateOptions['tools']>[n
 
 /**
  * 本插件注册的冻结路由 pi-ai 适配器。路由与 `Models` 集合在构造时固定——
- * pi-auth-bridge 没有 settings 缝，因此没有需要快照的配置代际。
+ * dsh-pi-auth-bridge 没有 settings 缝，因此没有需要快照的配置代际。
  */
 export class PiAuthBridgeAdapter extends LlmAdapter {
   /** 已服务的路由名，按注册顺序。 */
@@ -158,7 +158,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
       if (route.headers !== undefined) {
         const collisions = Object.keys(route.headers).filter((name) => reserved.has(name.toLowerCase()))
         if (collisions.length > 0) {
-          this.warn(`pi-auth-bridge: route "${route.route}": header(s) ${collisions.join(', ')} collide with mandatory harness attribution headers and will be overridden`)
+          this.warn(`dsh-pi-auth-bridge: route "${route.route}": header(s) ${collisions.join(', ')} collide with mandatory harness attribution headers and will be overridden`)
         }
       }
       return Object.freeze({ ...route, models: Object.freeze([...route.models]) }) as RouteDef
@@ -176,7 +176,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
 
   private routeOf(provider: string): RouteDef {
     const route = this.routeMap.get(provider)
-    if (route === undefined) throw new LlmError(`pi-auth-bridge adapter does not own provider "${provider}"`, 'NO_ADAPTER')
+    if (route === undefined) throw new LlmError(`dsh-pi-auth-bridge adapter does not own provider "${provider}"`, 'NO_ADAPTER')
     return route
   }
 
@@ -186,7 +186,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     if (!FETCH_REJECTING_APIS.has(model.api)) return this.proxyFetch
     if (!this.proxySkipWarned.has(model.provider)) {
       this.proxySkipWarned.add(model.provider)
-      this.warn(`pi-auth-bridge: route "${model.provider}": api "${model.api}" rejects custom fetch; proxy env vars are not applied to this route (start dsh with NODE_USE_ENV_PROXY=1 to proxy it)`)
+      this.warn(`dsh-pi-auth-bridge: route "${model.provider}": api "${model.api}" rejects custom fetch; proxy env vars are not applied to this route (start dsh with NODE_USE_ENV_PROXY=1 to proxy it)`)
     }
     return undefined
   }
@@ -195,7 +195,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     this.routeOf(provider)
     const resolved = this.models.getModel(provider, model)
     if (resolved === undefined) {
-      throw new LlmError(`pi-auth-bridge provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
+      throw new LlmError(`dsh-pi-auth-bridge provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
     }
     return resolved
   }
@@ -247,7 +247,7 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
    */
   async *streamWithAttachments(options: GenerateOptions, attachmentsOverride?: ImageAttachmentReader): AsyncGenerator<StreamChunk> {
     if (options.stop !== undefined) {
-      throw new LlmError('pi-auth-bridge does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
+      throw new LlmError('dsh-pi-auth-bridge does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
     const route = this.routeOf(options.provider)
     const model = this.modelOf(options.provider, options.model)
@@ -255,11 +255,11 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
     const reasoning = effort === 'off' ? undefined : effort
     const hasImages = options.messages.some((message) => contentHasImage(message.content))
     if (hasImages && !model.input.includes('image')) {
-      throw new LlmError(`pi-auth-bridge model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
+      throw new LlmError(`dsh-pi-auth-bridge model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
     }
     const attachments = attachmentsOverride ?? (hasImages ? this.resolveAttachments?.() : undefined)
     if (hasImages && attachments === undefined) {
-      throw new LlmError('pi-auth-bridge image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+      throw new LlmError('dsh-pi-auth-bridge image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
 
     const consumer = new AbortController()
@@ -300,18 +300,18 @@ export class PiAuthBridgeAdapter extends LlmAdapter {
         }
       } finally {
         if (!exhausted) {
-          consumer.abort('pi-auth-bridge stream consumer stopped')
+          consumer.abort('dsh-pi-auth-bridge stream consumer stopped')
           try {
             await iterator.return(undefined)
           } catch (error) {
             // 流已拆除，这里的失败只上报，不向外抛（finally 里抛出会掩盖主错误）。
-            this.warn(`pi-auth-bridge: upstream teardown failed after abort: ${(error as Error).message}`)
+            this.warn(`dsh-pi-auth-bridge: upstream teardown failed after abort: ${(error as Error).message}`)
           }
         }
       }
     } catch (error) {
       if (options.signal?.aborted) {
-        throw new LlmError('pi-auth-bridge request aborted by caller', 'ABORTED', { cause: error })
+        throw new LlmError('dsh-pi-auth-bridge request aborted by caller', 'ABORTED', { cause: error })
       }
       // 桥健康相关错误（上游失败、图片转换失败等）记录给自健康面板。
       this.recordError?.({

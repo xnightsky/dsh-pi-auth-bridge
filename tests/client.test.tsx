@@ -25,7 +25,7 @@ function bridged(): BridgeStatus {
     piDir: '/home/u/.pi/agent',
     routes: [ROUTE],
     proxy: { enabled: true, detected: true },
-    warnings: ['pi-auth-bridge: sample warning'],
+    warnings: ['dsh-pi-auth-bridge: sample warning'],
   })
 }
 
@@ -40,7 +40,7 @@ describe('PiAuthBridgeSection', () => {
     expect(screen.getByText(/API Key/)).toBeTruthy()
     expect(screen.getByText('/home/u/.pi/agent')).toBeTruthy()
     expect(screen.getByText(/已检测到代理变量/)).toBeTruthy()
-    expect(screen.getByText('pi-auth-bridge: sample warning')).toBeTruthy()
+    expect(screen.getByText('dsh-pi-auth-bridge: sample warning')).toBeTruthy()
     // 凭据本体绝不进面板。
     expect(container.textContent).not.toContain('sk-client-canary')
   })
@@ -236,7 +236,7 @@ describe('client apply', () => {
     child?.apply(panelCtx)
 
     expect(registered).toHaveLength(1)
-    expect(registered[0]?.options).toMatchObject({ name: 'settings.section', id: 'pi-auth-bridge' })
+    expect(registered[0]?.options).toMatchObject({ name: 'settings.section', id: 'dsh-pi-auth-bridge' })
     expect(typeof registered[0]?.component).toBe('function')
     // loadStatus 解包 RemoteResult。
     const face = (registered[0]?.options.inject as () => { loadStatus: () => Promise<BridgeStatus>; probe: (request: ProbeRequest) => Promise<ProbeResult> })()

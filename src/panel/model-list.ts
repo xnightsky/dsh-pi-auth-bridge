@@ -31,6 +31,6 @@ export async function fillModelLists(adapter: PiAuthBridgeAdapter, box: BridgeSt
       }),
     }
   } catch (error) {
-    warn(`pi-auth-bridge: failed to collect model lists for the panel: ${(error as Error).message}`)
+    warn(`dsh-pi-auth-bridge: failed to collect model lists for the panel: ${(error as Error).message}`)
   }
 }

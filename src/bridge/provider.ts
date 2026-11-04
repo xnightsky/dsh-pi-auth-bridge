@@ -130,12 +130,12 @@ function materializeModels(
     const base = byId.get(def.id)
     const api = (fallback.api ?? base?.api) as Api | undefined
     if (api === undefined) {
-      warn(`pi-auth-bridge: provider "${route.providerId}": model "${def.id}" has no api and the pi-ai catalog cannot supply one; model skipped`)
+      warn(`dsh-pi-auth-bridge: provider "${route.providerId}": model "${def.id}" has no api and the pi-ai catalog cannot supply one; model skipped`)
       continue
     }
     const baseUrl = fallback.baseUrl ?? base?.baseUrl
     if (baseUrl === undefined) {
-      warn(`pi-auth-bridge: provider "${route.providerId}": model "${def.id}" has no baseUrl; model skipped`)
+      warn(`dsh-pi-auth-bridge: provider "${route.providerId}": model "${def.id}" has no baseUrl; model skipped`)
       continue
     }
     models.push({
@@ -186,7 +186,7 @@ function reuseCatalogProvider(catalog: Provider, route: RouteDef, warn: Warn): P
         warn,
       )
   if (models.length === 0) {
-    warn(`pi-auth-bridge: provider "${route.providerId}": no servable models; route skipped`)
+    warn(`dsh-pi-auth-bridge: provider "${route.providerId}": no servable models; route skipped`)
     return undefined
   }
   return {
@@ -203,31 +203,31 @@ function reuseCatalogProvider(catalog: Provider, route: RouteDef, warn: Warn): P
 function buildProvider(route: RouteDef, warn: Warn): Provider | undefined {
   const catalog = catalogProviders().get(route.providerId)
   if (route.oauth !== undefined && catalog?.auth.oauth === undefined) {
-    warn(`pi-auth-bridge: provider "${route.providerId}": OAuth credential cannot be refreshed (no pi-ai OAuth handler); route skipped`)
+    warn(`dsh-pi-auth-bridge: provider "${route.providerId}": OAuth credential cannot be refreshed (no pi-ai OAuth handler); route skipped`)
     return undefined
   }
   // 无协议覆盖的目录路由复用已安装 provider，保留其 API 实现、兼容 quirks 与环境认证。
   if (catalog !== undefined && route.api === undefined) return reuseCatalogProvider(catalog, route, warn)
   if (catalog === undefined && route.kind === 'builtin') {
-    warn(`pi-auth-bridge: provider "${route.providerId}" has credentials but is unknown to the pi-ai catalog and not described by models.json; route skipped`)
+    warn(`dsh-pi-auth-bridge: provider "${route.providerId}" has credentials but is unknown to the pi-ai catalog and not described by models.json; route skipped`)
     return undefined
   }
   const factory = route.api === undefined ? undefined : PROTOCOLS[route.api]
   if (factory === undefined) {
-    warn(`pi-auth-bridge: provider "${route.providerId}" names api "${route.api ?? '(none)'}", which this bridge cannot serve; supported protocols are ${Object.keys(PROTOCOLS).join(', ')}; route skipped`)
+    warn(`dsh-pi-auth-bridge: provider "${route.providerId}" names api "${route.api ?? '(none)'}", which this bridge cannot serve; supported protocols are ${Object.keys(PROTOCOLS).join(', ')}; route skipped`)
     return undefined
   }
   if (route.baseURL === undefined) {
-    warn(`pi-auth-bridge: provider "${route.providerId}" is a custom provider without a baseUrl; route skipped`)
+    warn(`dsh-pi-auth-bridge: provider "${route.providerId}" is a custom provider without a baseUrl; route skipped`)
     return undefined
   }
   if (route.models.length === 0) {
-    warn(`pi-auth-bridge: provider "${route.providerId}" declares no models in models.json; route skipped`)
+    warn(`dsh-pi-auth-bridge: provider "${route.providerId}" declares no models in models.json; route skipped`)
     return undefined
   }
   const models = materializeModels(route, route.models, { api: route.api as Api, baseUrl: route.baseURL }, warn)
   if (models.length === 0) {
-    warn(`pi-auth-bridge: provider "${route.providerId}": no servable models; route skipped`)
+    warn(`dsh-pi-auth-bridge: provider "${route.providerId}": no servable models; route skipped`)
     return undefined
   }
   return createProvider({
@@ -281,6 +281,6 @@ export function buildPiModels(routes: readonly RouteDef[], options: { warn?: War
   }
   const ready = Promise.all(pending)
   // 立即观察初始化失败；首个流请求仍会收到同一个拒绝，绝不静默回退。
-  void ready.catch(() => warn('pi-auth-bridge: in-memory OAuth credential initialization failed'))
+  void ready.catch(() => warn('dsh-pi-auth-bridge: in-memory OAuth credential initialization failed'))
   return { models: readyModels(models, ready), served }
 }

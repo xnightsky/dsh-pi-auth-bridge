@@ -2,5 +2,5 @@
 # config 留空走默认（零配置）；用户可在 profile 层 cordis.patch.yml 用同 id
 # 覆盖 config（可选项见 README「在 dsh 中使用」）。
 - insert:
-    - id: pi-auth-bridge
+    - id: dsh-pi-auth-bridge
       name: "@xnightsky/dsh-pi-auth-bridge"

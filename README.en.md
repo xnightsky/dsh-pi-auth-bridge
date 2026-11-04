@@ -1,4 +1,8 @@
-# pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge)
+# dsh-pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge)
+
+[![npm version](https://img.shields.io/npm/v/%40xnightsky%2Fdsh-pi-auth-bridge)](https://www.npmjs.com/package/@xnightsky/dsh-pi-auth-bridge)
+[![License](https://img.shields.io/github/license/xnightsky/dsh-pi-auth-bridge)](./LICENSE)
+[![Release](https://github.com/xnightsky/dsh-pi-auth-bridge/actions/workflows/release.yml/badge.svg)](https://github.com/xnightsky/dsh-pi-auth-bridge/actions/workflows/release.yml)
 
 > [中文](./README.md) | **English**
 
@@ -55,7 +59,9 @@ npm run build   # produces dist/ (ESM + .d.ts)
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch), `zod` (Typert artifact schemas); `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@`0.2.1-rc.4`, `@deepseek-ai/dsh-attachment`@`0.2.1-rc.4`, `@deepseek-ai/dsh-typert-protocol`@`0.2.1-rc.4` and `react` (peers, provided by the dsh composition; `LlmAdapter.imageRequestPricing` keeps the base-class default of declaring no image pricing). This version supports exactly DSH `0.2.1-rc.4`: first-class `tool` messages, `developer` tool updates and deferred declarations, native system history, and the `imageRequestTarget()` projection contract. DSH 0.1.6 is no longer supported.
+Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch), `zod` (Typert artifact schemas); `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-attachment`, `@deepseek-ai/dsh-typert-protocol` and `react` (peers, provided by the dsh composition; `LlmAdapter.imageRequestPricing` keeps the base-class default of declaring no image pricing). This version supports DSH `0.2.1-rc.4 || 0.2.1-rc.5`: first-class `tool` messages, `developer` tool updates and deferred declarations, native system history, and the `imageRequestTarget()` projection contract. DSH 0.1.6 is no longer supported.
+
+The three dsh peers declare this verified compatibility range. Development baseline: `devDependencies` 0.2.1-rc.5 (exactly pinned); the lockfile still resolves rc.5. The range does not admit rc.6, stable 0.2.1, or 0.2.2, and no compatibility exemption is used. Future versions require verification before expanding the range. Restart dsh after updating the plugin.
 
 > Node version: pi-ai 1.x declares `node >= 22.19`. Use Node 22.19+ and follow the runtime requirements of your dsh version.
 
@@ -63,19 +69,19 @@ Dependencies: `@earendil-works/pi-ai` (runtime), `undici` (proxy fetch), `zod` (
 
 ### As a dsh bundle (official way)
 
-This package follows the official dsh plugin convention: the entry point exports `name` / `inject: ['llm']` / `Config` / `apply`, and `package.json` declares `dsh.bundle.patch` pointing at the root `cordis.patch.yml` (zero-config mount by default, id `pi-auth-bridge`). Add it to a profile:
+This package follows the official dsh plugin convention: the entry point exports `name` / `inject: ['llm']` / `Config` / `apply`, and `package.json` declares `dsh.bundle.patch` pointing at the root `cordis.patch.yml` (zero-config mount by default, id `dsh-pi-auth-bridge`). Add it to a profile:
 
 ```bash
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # local path; see Installation above for npm/git installs
 ```
 
-**Restart the dsh process** after adding (Ctrl+C, then `dsh --profile <name>` again) — the routes only appear in the model list after a restart. A startup log line `pi-auth-bridge: bridged N route(s) from ...` means the bridge is live; if you only see warnings, follow their hints to check the pi directory and credentials.
+**Restart the dsh process** after adding (Ctrl+C, then `dsh --profile <name>` again) — the routes only appear in the model list after a restart. A startup log line `dsh-pi-auth-bridge: bridged N route(s) from ...` means the bridge is live; if you only see warnings, follow their hints to check the pi directory and credentials.
 
 To override the config, use the same id in the profile-level `cordis.patch.yml`:
 
 ```yaml
 - insert:
-    - id: pi-auth-bridge
+    - id: dsh-pi-auth-bridge
       name: "@xnightsky/dsh-pi-auth-bridge"
       config:
         # piDir: /custom/pi/agent        # override the pi config directory
@@ -91,10 +97,10 @@ Bypass the bundle mechanism and `insert` directly in any cordis config layer; bo
 
 ```yaml
 # Load the TypeScript source directly (dsh can load a TS plugin entry by absolute path)
-- insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/src/index.ts' }]
+- insert: [{ id: dsh-pi-auth-bridge, name: '/abs/path/dsh-pi-auth-bridge/src/index.ts' }]
 
 # or load the build output
-- insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/dist/index.js' }]
+- insert: [{ id: dsh-pi-auth-bridge, name: '/abs/path/dsh-pi-auth-bridge/dist/index.js' }]
 ```
 
 Once mounted, route names carry the fixed `pi/<providerId>` prefix (e.g. `pi/openai`), and group titles are always prefixed with `Pi · ` (e.g. `Pi · OpenAI`) — the dsh web model picker has only two levels ("group → model"), so pi cannot be a true third-level channel; its origin is expressed jointly by the route prefix and the group title, plainly distinguishable from dsh-native providers. The model catalog comes from the pi-ai built-in catalog or custom declarations in `models.json`.
@@ -126,7 +132,7 @@ Neither pi-ai nor dsh reads `http_proxy`-style environment variables (pi itself 
 - **Google routes are the exception**: the pi-ai adapters for `google-generative-ai` / `google-vertex` reject custom fetch, so those routes get no injection (one warn per route). To proxy them, start dsh with `NODE_USE_ENV_PROXY=1` (Node ≥ 24.5) so Node's built-in fetch reads the proxy variables itself — this is also the global alternative if you prefer not to depend on undici.
 - **OAuth refresh is separate**: SDK refresh uses global `fetch`, not the plugin's per-model proxy fetch, and is not controlled by `proxy: false`. On restricted networks, use Node ≥ 24.5, set `NODE_USE_ENV_PROXY=1` before starting dsh, and configure `HTTP_PROXY` / `HTTPS_PROXY` (or lowercase equivalents); do not rely on `all_proxy` alone. The plugin never patches the host's global fetch or dispatcher.
 - **Global proxy isolation**: this package restricts `undici` to 7.x because importing 8.x can replace Node's native global proxy dispatcher. Other host dependencies that reset the dispatcher remain the host's responsibility; setting a proxy URL alone does not guarantee OAuth refresh uses it.
-- A startup log line `pi-auth-bridge: proxy environment detected; ...` confirms proxy injection is active.
+- A startup log line `dsh-pi-auth-bridge: proxy environment detected; ...` confirms proxy injection is active.
 
 ## Plugin panel (Settings → Pi Auth Bridge)
 
@@ -155,7 +161,7 @@ Live verification (2026-10-28, Node 24.14.0 / pi-ai 1.4.0 / undici 7.30.1): real
 
 ## Differences from `@deepseek-ai/dsh-llm-pi-ai`
 
-| | dsh-llm-pi-ai (official) | pi-auth-bridge (this plugin) |
+| | dsh-llm-pi-ai (official) | dsh-pi-auth-bridge (this plugin) |
 |---|---|---|
 | Credential source | harness-owned credential store / login flows (`ctx.credentials`, OAuth login) | reuses the local pi `auth.json` login state |
 | Configuration | settings seam, per-field profile overrides of the catalog | zero config (only 6 optional knobs) |
@@ -198,8 +204,12 @@ npm test            # vitest run
 
 `npm test` uses temporary fixtures and mocks, never the real `~/.pi` or external network. New OpenAI OAuth regressions exercise real pi-ai with intercepted refresh/Responses fetches: first-request auth, expiry after startup, rotated refresh reuse, same-process concurrency, no fallback on refresh failure, ChatGPT request handling, and metadata exclusion from panel snapshots.
 
-On 2026-10-26, a separate temporary Web profile running the real dsh `0.2.1-rc.2` CLI passed cloud text and user/tool image requests, plus all four panel probes through the host Gateway. Browser clicks and other providers remain unverified; see the background facts in the [design document](docs/spec/2026-08-29-pi-auth-bridge-design.md).
-On 2026-11-03, a separate temporary Web profile using the desktop DSH `0.2.1-rc.4` runtime (Node v24.21.0) was also verified: after a local link install, the rc.4 host startup log contained no `skipping profile bundle ... incompatible` and printed `pi-auth-bridge: bridged 4 route(s) from ...`; the real host Typert `piAuthBridge/status` endpoint returned HTTP 200 with `phase=bridged`, all three startup self-checks `ok`, and panel model lists of 4/2/42/305 entries for the four servable routes. A real text probe against `pi/deepseek` / `deepseek-flash` then returned HTTP 200 in 921 ms with `finish=stop`, `usage ✓`, and reply `Pong`; the cached status result matched the host log. Browser clicks, other capability dimensions, and cloud conversations remain unverified; `~/.pi` `auth.json` / `models.json` SHA-256 values matched before and after, and the temporary host and data were cleaned up.
+DSH baseline regressions also verify agreement between the package manifest, lockfile, installed versions, and both READMEs, preventing stale local dependencies from being mistaken for a new-host validation.
+
+2026-11-04 rc.5 validation: type checking, all 175 tests, and the build passed. The peer range was then expanded to rc.4 / rc.5 while retaining rc.5 as the development baseline. Built artifacts also passed a text-stream smoke check using real rc.5 Cordis / LlmRuntime, real pi-ai, and an in-memory upstream stub, covering auth/attribution headers, usage before finish, and route disposal. No real credentials or user configuration were touched. The rc.5 desktop UI, actual profile installation, cloud calls, and end-to-end image attachments remain unverified. The rc.2/rc.4 records below are historical, not rc.5 acceptance evidence.
+
+On 2026-10-26, a separate temporary Web profile running the real dsh `0.2.1-rc.2` CLI passed cloud text and user/tool image requests, plus all four panel probes through the host Gateway. Browser clicks and other providers remain unverified; see the background facts in the [design document](docs/spec/dsh-pi-auth-bridge-design.md).
+On 2026-11-03, a separate temporary Web profile using the desktop DSH `0.2.1-rc.4` runtime (Node v24.21.0) was also verified: after a local link install, the rc.4 host startup log contained no `skipping profile bundle ... incompatible` and printed `dsh-pi-auth-bridge: bridged 4 route(s) from ...`; the real host Typert `piAuthBridge/status` endpoint returned HTTP 200 with `phase=bridged`, all three startup self-checks `ok`, and panel model lists of 4/2/42/305 entries for the four servable routes. A real text probe against `pi/deepseek` / `deepseek-flash` then returned HTTP 200 in 921 ms with `finish=stop`, `usage ✓`, and reply `Pong`; the cached status result matched the host log. Browser clicks, other capability dimensions, and cloud conversations remain unverified; `~/.pi` `auth.json` / `models.json` SHA-256 values matched before and after, and the temporary host and data were cleaned up.
 
 ## License
 

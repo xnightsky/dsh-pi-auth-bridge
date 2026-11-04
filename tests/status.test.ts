@@ -91,12 +91,12 @@ describe('bridgedStatus', () => {
       piDir: '/home/u/.pi/agent',
       routes: [route({ apiKey: 'sk-canary-secret' })],
       proxy: { enabled: true, detected: false },
-      warnings: ['pi-auth-bridge: sample warning'],
+      warnings: ['dsh-pi-auth-bridge: sample warning'],
     })
     expect(status.phase).toBe('bridged')
     expect(status.piDir).toBe('/home/u/.pi/agent')
     expect(status.routes).toHaveLength(1)
-    expect(status.warnings).toEqual(['pi-auth-bridge: sample warning'])
+    expect(status.warnings).toEqual(['dsh-pi-auth-bridge: sample warning'])
     expect(JSON.stringify(status)).not.toContain('sk-canary-secret')
   })
 

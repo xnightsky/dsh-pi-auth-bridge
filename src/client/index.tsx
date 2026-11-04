@@ -1,5 +1,5 @@
 /**
- * pi-auth-bridge 浏览器半区入口：Settings 面板的「Pi Auth Bridge」区块。
+ * dsh-pi-auth-bridge 浏览器半区入口：Settings 面板的「Pi Auth Bridge」区块。
  * 挂载本包的 Typert Remote 贡献（`../typert.remote-client.js`），经
  * `piAuthBridge/status` 拉取桥状态快照、`piAuthBridge/probe` 触发能力探测；
  * 呈现层在 ./panel.js。面板只读，探测是用户点击触发的真实 API 调用。
@@ -19,7 +19,7 @@ import { PiAuthBridgeSection, type PiAuthBridgePanelFace } from './panel.js'
 export const inject = ['slots', 'remote']
 
 /** 浏览器半区插件名（logger 用）。 */
-export const name = 'pi-auth-bridge'
+export const name = 'dsh-pi-auth-bridge'
 
 export { PiAuthBridgeSection }
 export type { PiAuthBridgePanelFace }
@@ -35,10 +35,10 @@ export function apply(ctx: Context): void {
   const mounted = ctx.remote.$mount(TYPERT_REMOTE)
   mounted.catch((error: unknown) => {
     // 挂载失败时子插件永远 park（面板不出现），必须显式报出，禁止静默失败。
-    ctx.logger(name).warn(`pi-auth-bridge: failed to mount the remote contribution: ${(error as Error).message}`)
+    ctx.logger(name).warn(`dsh-pi-auth-bridge: failed to mount the remote contribution: ${(error as Error).message}`)
   })
   ctx.plugin({
-    name: 'pi-auth-bridge-panel',
+    name: 'dsh-pi-auth-bridge-panel',
     inject: ['slots', 'remote.piAuthBridge'],
     apply: (panelCtx: Context) => {
       const loadStatus = async (): Promise<BridgeStatus> => {
@@ -54,7 +54,7 @@ export function apply(ctx: Context): void {
       panelCtx.slots.inject('settings.section', () =>
         panelCtx.slots.register({
           name: 'settings.section',
-          id: 'pi-auth-bridge',
+          id: 'dsh-pi-auth-bridge',
           order: 100,
           label: () => 'Pi Auth Bridge',
           inject: (): PiAuthBridgePanelFace => ({ loadStatus, probe }),

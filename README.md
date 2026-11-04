@@ -1,4 +1,8 @@
-# pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge)
+# dsh-pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge)
+
+[![npm version](https://img.shields.io/npm/v/%40xnightsky%2Fdsh-pi-auth-bridge)](https://www.npmjs.com/package/@xnightsky/dsh-pi-auth-bridge)
+[![License](https://img.shields.io/github/license/xnightsky/dsh-pi-auth-bridge)](./LICENSE)
+[![Release](https://github.com/xnightsky/dsh-pi-auth-bridge/actions/workflows/release.yml/badge.svg)](https://github.com/xnightsky/dsh-pi-auth-bridge/actions/workflows/release.yml)
 
 > **中文** | [English](./README.en.md)
 
@@ -55,7 +59,9 @@ npm run build   # 产出 dist/（ESM + .d.ts）
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 ```
 
-依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）、`zod`（Typert 产物 schema）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`@`0.2.1-rc.4`、`@deepseek-ai/dsh-attachment`@`0.2.1-rc.4`、`@deepseek-ai/dsh-typert-protocol`@`0.2.1-rc.4`、`react`（peer，由 dsh 组合提供；`LlmAdapter` 的 `imageRequestPricing` 沿用基类默认的「不声明图片计价」）。本版本精确支持 DSH `0.2.1-rc.4`：适配独立 `tool` 角色、`developer` 工具增删与延迟声明、原生 system 历史，以及 `imageRequestTarget()` 图片投影契约；不再支持 0.1.6。
+依赖：`@earendil-works/pi-ai`（运行时）、`undici`（代理 fetch）、`zod`（Typert 产物 schema）；`@deepseek-ai/cordis`、`@deepseek-ai/dsh-llm`、`@deepseek-ai/dsh-attachment`、`@deepseek-ai/dsh-typert-protocol`、`react`（peer，由 dsh 组合提供；`LlmAdapter` 的 `imageRequestPricing` 沿用基类默认的「不声明图片计价」）。本版本支持 DSH `0.2.1-rc.4 || 0.2.1-rc.5`：适配独立 `tool` 角色、`developer` 工具增删与延迟声明、原生 system 历史，以及 `imageRequestTarget()` 图片投影契约；不再支持 0.1.6。
+
+三个 dsh peer 声明上述已核对版本的兼容范围，开发测试基线保持 `devDependencies` 0.2.1-rc.5 精确锁定，lockfile 仍解析为 rc.5。范围不放行 rc.6、0.2.1 正式版或 0.2.2，不使用兼容豁免；未来版本需重新验证后扩大范围。升级插件后请重启 dsh。
 
 > Node 版本：pi-ai 1.x 声明 `node >= 22.19`，请使用 Node 22.19+，并与 dsh 的运行时要求保持一致。
 
@@ -63,19 +69,19 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge
 
 ### 作为 dsh bundle（官方方式）
 
-本包遵循 dsh 插件官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`，`package.json` 声明 `dsh.bundle.patch` 指向根目录的 `cordis.patch.yml`（默认零配置挂载，id 为 `pi-auth-bridge`）。装入 profile：
+本包遵循 dsh 插件官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`，`package.json` 声明 `dsh.bundle.patch` 指向根目录的 `cordis.patch.yml`（默认零配置挂载，id 为 `dsh-pi-auth-bridge`）。装入 profile：
 
 ```bash
 dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径；npm/git 安装见上方「安装」
 ```
 
-装入后需**重启 dsh 进程**（Ctrl+C 后重跑 `dsh --profile <name>`）才会出现在模型列表。启动日志出现 `pi-auth-bridge: bridged N route(s) from ...` 即桥接成功；只有 warn 时按提示检查 pi 目录与凭据。
+装入后需**重启 dsh 进程**（Ctrl+C 后重跑 `dsh --profile <name>`）才会出现在模型列表。启动日志出现 `dsh-pi-auth-bridge: bridged N route(s) from ...` 即桥接成功；只有 warn 时按提示检查 pi 目录与凭据。
 
 需要改配置时，在 profile 层 `cordis.patch.yml` 用同 id 覆盖：
 
 ```yaml
 - insert:
-    - id: pi-auth-bridge
+    - id: dsh-pi-auth-bridge
       name: "@xnightsky/dsh-pi-auth-bridge"
       config:
         # piDir: /custom/pi/agent        # 覆盖 pi 配置目录
@@ -91,10 +97,10 @@ dsh plugin --profile <name> add /abs/path/dsh-pi-auth-bridge   # 本地路径；
 
 ```yaml
 # 直接加载 TypeScript 源码（dsh 支持按绝对路径加载 TS 插件入口）
-- insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/src/index.ts' }]
+- insert: [{ id: dsh-pi-auth-bridge, name: '/abs/path/dsh-pi-auth-bridge/src/index.ts' }]
 
 # 或加载构建产物
-- insert: [{ id: pi-auth-bridge, name: '/abs/path/pi-auth-bridge/dist/index.js' }]
+- insert: [{ id: dsh-pi-auth-bridge, name: '/abs/path/dsh-pi-auth-bridge/dist/index.js' }]
 ```
 
 挂载后，路由名固定为 `pi/<providerId>`（如 `pi/openai`），分组标题恒以「Pi · 」开头（如 `Pi · OpenAI`）——dsh web 的模型选择器只有「分组 → 模型」两级，pi 无法成为真正的第三级渠道，出处由路由前缀与分组标题共同表达，与 dsh 原生 provider 一眼可分。模型目录来自 pi-ai 内置目录或 `models.json` 的自定义声明。
@@ -126,7 +132,7 @@ pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代�
 - **google 线路例外**：`google-generative-ai` / `google-vertex` 的 pi-ai adapter 拒绝自定义 fetch，这两条路由不注入（每路由 warn 一次）。如需给它们走代理，以 `NODE_USE_ENV_PROXY=1`（Node ≥ 24.5）启动 dsh，让 Node 内建 fetch 自己读代理变量——这也是不想依赖 undici 时的全局备选。
 - **OAuth 刷新例外**：SDK 内部刷新调用全局 `fetch`，不会使用本插件的模型请求代理，也不受 `proxy: false` 控制。受限网络中请使用 Node ≥ 24.5，在启动 dsh 前设置 `NODE_USE_ENV_PROXY=1`，并配置 `HTTP_PROXY` / `HTTPS_PROXY`（或对应小写变量）；不能只依赖 `all_proxy`。插件不会替宿主修改全局 fetch 或 dispatcher。
 - **全局代理隔离**：本库将 `undici` 限制在 7.x，避免 8.x 导入时覆盖 Node 内置的全局代理 dispatcher。宿主其他依赖若自行重置 dispatcher，仍需由宿主协调；仅设置代理地址并不能保证 OAuth 刷新走代理。
-- 启动日志出现 `pi-auth-bridge: proxy environment detected; ...` 即代理注入已生效。
+- 启动日志出现 `dsh-pi-auth-bridge: proxy environment detected; ...` 即代理注入已生效。
 
 ## 插件面板（Settings → Pi Auth Bridge）
 
@@ -155,7 +161,7 @@ pi-ai 与 dsh 都不读 `http_proxy` 等代理环境变量（pi 本体能走代�
 
 ## 与 `@deepseek-ai/dsh-llm-pi-ai` 的区别
 
-| | dsh-llm-pi-ai（官方） | pi-auth-bridge（本插件） |
+| | dsh-llm-pi-ai（官方） | dsh-pi-auth-bridge（本插件） |
 |---|---|---|
 | 凭据来源 | harness 自有凭据存储 / 登录流程（`ctx.credentials`、OAuth 登录） | 复用本机 pi 已有的 `auth.json` 登录态 |
 | 配置 | settings seam，profile 逐字段覆盖目录 | 零配置（仅 6 个可选项） |
@@ -198,8 +204,12 @@ npm test            # vitest run
 
 `npm test` 全部使用临时目录 fixture 与 mock，不访问真实 `~/.pi` 或外网。新版 OpenAI OAuth 回归使用真实 pi-ai 配合拦截的刷新 / Responses fetch，覆盖首次认证、启动后过期、轮换 refresh 复用、进程内并发刷新、刷新失败不回退、ChatGPT 参数处理和面板不泄露元数据。
 
-2026-10-26 另以真实 dsh `0.2.1-rc.2` 临时 Web profile 完成云端文本、user/tool 图片请求及面板 Gateway 四维探测；浏览器实际点击与其他 provider 尚未覆盖。验证范围见[设计文档「背景事实」](docs/spec/2026-08-29-pi-auth-bridge-design.md)。
-2026-11-03 另以用户桌面 App 实际运行的 dsh `0.2.1-rc.4`（Node v24.21.0）独立临时 Web profile 验证：本地 link 安装后，rc.4 宿主启动日志无 `skipping profile bundle ... incompatible`，输出 `pi-auth-bridge: bridged 4 route(s) from ...`；经宿主真实 `piAuthBridge/status` Typert 端点返回 HTTP 200，状态为 `phase=bridged`、三项启动自检均 `ok`，4 条可服务路由的面板模型清单分别回填 4/2/42/305 项；随后对 `pi/deepseek` / `deepseek-flash` 执行真实文本 probe，HTTP 200、921 ms、`finish=stop`、`usage ✓`、回复 `Pong`，状态服务缓存结果与宿主日志一致。浏览器点击、其余能力维度和云端对话未覆盖；`~/.pi` 的 `auth.json` / `models.json` 前后 SHA-256 一致，临时宿主与数据已清理。
+DSH 基线回归同时检查包清单、lockfile、实际安装版本和中英文文档一致，避免以旧的本地依赖误验新宿主。
+
+2026-11-04 对接 `0.2.1-rc.5`：类型检查、175 项测试与构建通过；随后 peer 放宽至 rc.4 / rc.5，保留 rc.5 开发测试基线。构建产物经真实 rc.5 Cordis / LlmRuntime、真实 pi-ai 与内存模拟上游通过文本流冒烟（含认证/归因头、usage→finish、路由释放）。本轮未使用真实凭据、未修改用户配置；尚未验收 rc.5 桌面 UI、实际 profile 安装、云端及图片附件端到端。下列 rc.2/rc.4 记录仅为历史验证，不替代 rc.5 验收。
+
+2026-10-26 另以真实 dsh `0.2.1-rc.2` 临时 Web profile 完成云端文本、user/tool 图片请求及面板 Gateway 四维探测；浏览器实际点击与其他 provider 尚未覆盖。验证范围见[设计文档「背景事实」](docs/spec/dsh-pi-auth-bridge-design.md)。
+2026-11-03 另以用户桌面 App 实际运行的 dsh `0.2.1-rc.4`（Node v24.21.0）独立临时 Web profile 验证：本地 link 安装后，rc.4 宿主启动日志无 `skipping profile bundle ... incompatible`，输出 `dsh-pi-auth-bridge: bridged 4 route(s) from ...`；经宿主真实 `piAuthBridge/status` Typert 端点返回 HTTP 200，状态为 `phase=bridged`、三项启动自检均 `ok`，4 条可服务路由的面板模型清单分别回填 4/2/42/305 项；随后对 `pi/deepseek` / `deepseek-flash` 执行真实文本 probe，HTTP 200、921 ms、`finish=stop`、`usage ✓`、回复 `Pong`，状态服务缓存结果与宿主日志一致。浏览器点击、其余能力维度和云端对话未覆盖；`~/.pi` 的 `auth.json` / `models.json` 前后 SHA-256 一致，临时宿主与数据已清理。
 
 ## 许可证
 

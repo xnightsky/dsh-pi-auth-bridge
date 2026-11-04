@@ -352,12 +352,12 @@ export function createProbeHandler(
 ): (request: ProbeRequest) => Promise<ProbeResult> {
   return async (request) => {
     const scope = request.capability === undefined ? '全维度' : `单维 ${request.capability}`
-    logger?.info(`pi-auth-bridge: probe ${request.route}/${request.model}（${scope}）开始`)
+    logger?.info(`dsh-pi-auth-bridge: probe ${request.route}/${request.model}（${scope}）开始`)
     try {
       const report = await probeModel(adapter, request.route, request.model, request.capability)
       for (const outcome of report.outcomes) {
         const line =
-          `pi-auth-bridge: probe ${report.route}/${report.model} ${outcome.capability} → ${outcome.verdict} ` +
+          `dsh-pi-auth-bridge: probe ${report.route}/${report.model} ${outcome.capability} → ${outcome.verdict} ` +
           `(${outcome.latencyMs}ms)${outcome.detail !== undefined ? ` · ${outcome.detail}` : ''}`
         if (outcome.verdict === 'failed') {
           logger?.warn(line)
@@ -367,7 +367,7 @@ export function createProbeHandler(
       }
       return { ok: true, report }
     } catch (error) {
-      logger?.warn(`pi-auth-bridge: probe ${request.route}/${request.model} 启动失败: ${(error as Error).message}`)
+      logger?.warn(`dsh-pi-auth-bridge: probe ${request.route}/${request.model} 启动失败: ${(error as Error).message}`)
       return {
         ok: false,
         route: request.route,

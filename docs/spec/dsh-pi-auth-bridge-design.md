@@ -1,4 +1,4 @@
-# pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge) 设计
+# dsh-pi-auth-bridge (@xnightsky/dsh-pi-auth-bridge) 设计
 
 > 状态：已落地（v0.1.0）
 >
@@ -7,6 +7,8 @@
 > 本文是设计真相源；设计变更先改本文，再改代码。
 
 dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json` + `auth.json`）在**内存中**转换为 dsh 的 LLM 路由，即转即用、绝不落地。相当于一座 auth adapter 桥。
+
+项目独立名称统一为 `dsh-pi-auth-bridge`：README 标题、日志前缀、Cordis 插件与 bundle id、测试标识和设计文档文件名均使用该名称，不保留旧名称别名。npm 包名仍为 `@xnightsky/dsh-pi-auth-bridge`；公开的 `piAuthBridge` RPC 命名空间和 `PiAuthBridge*` 类型/导出保持不变。已有 profile 自定义覆盖须使用新的 Cordis id。中英文 README 展示 npm 版本、MIT License 与 Release 工作流状态徽章；在线核对三者均 HTTP 200，分别显示 v0.5.5、MIT 与 passing。npm 下载统计尚未生成，不展示错误徽章。新增命名残留与双语徽章回归，类型检查、178 项测试和构建通过。
 
 ## 0. 背景事实（已核实，不要重新调研）
 
@@ -36,9 +38,12 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
   - 错误仅两条路径：`stream()` 抛 `LlmError`（带稳定 code），或 `finish {kind:'error'|'aborted'}`
   - 遵守 `options.signal`
   - 不支持的 option → 抛 `LlmError(..., 'UNSUPPORTED_OPTION')`，不静默丢弃
-- **dsh 版本精确锁定 `0.2.1-rc.4`**：当前基线来源是用户桌面 App 实际运行的 DSH `0.2.1-rc.4`，不是 npm `latest`——npm `@deepseek-ai/dsh` 的 latest 已是 `0.2.1-rc.5`，本版本未采用。仍必须精确锁定，不能使用 `^0.2.1-rc.4`：npm 会解析到 `rc.5`，与宿主 `rc.4` 的精确 peer 兼容门冲突；宿主升到 `rc.5` 或 `0.2.2` 后会再次不兼容。本版本只支持该基线，不保留 0.1.6 双兼容层。`dsh-attachment` 的 `readImageRequest` target 契约未变；Settings slot、client Gateway 与手写 Typert 清单的新增协议字段均向后兼容。历史：2026-10-25 曾以 npm latest 的 `dsh@0.2.1-rc.2` 为基线（当时 `^0.2.1-rc.2` 会解析到 `rc.3` 并冲突）；0.1.6-alpha 线引入 `requiredImageOffload` + `IMAGE_OFFLOAD_REQUIRED` + `projectOffloadedImages`；0.1.2 起 `LlmAdapter` 新增 `imageRequestPricing`，本插件仍沿用基类默认的「不声明图片计价」。
+- **dsh 宿主兼容范围 `0.2.1-rc.4 || 0.2.1-rc.5`**：2026-11-04 用户确认将 dsh peer 从单版本锁定改为已核对版本的并集，三个 dsh peer 使用相同范围。开发测试基线保持 `devDependencies` 0.2.1-rc.5 精确锁定，lockfile 和本地安装仍为 rc.5。rc.4 已有桌面宿主历史验收，且本轮使用的八个契约包在 rc.4 / rc.5 间无接口变化，故不增加运行时双兼容分支。范围不放行 rc.3、rc.6、0.2.1 正式版或 0.2.2，不使用 `^`、`engines.dsh` 或版本豁免；未来版本需重新核对后显式扩大范围。
+- **兼容范围边界验证（2026-11-04）**：先以新测试复现两项失败（peer 仍为 rc.5、文档仍声明单版本），更新后三项基线回归全部通过。分别使用 npm 的 semver 默认语义及真实 rc.5 `dsh-app-boot.evaluatePluginCompatibility` 检查三个 peer 和完整清单，均接受 rc.4 / rc.5，拒绝 rc.3 / rc.6 / 0.2.1 正式版 / 0.2.2；不依赖宿主的版本豁免。改动后 `npm ci --ignore-scripts`、类型检查、175 项测试与构建全部通过。此次不重跑 rc.4 桌面或云端端到端验收，沿用下述既有记录与本轮契约一致性核对。注释收口仅区分测试基线与宿主范围，运行时接口不变。
+- **rc.5 接口核对（2026-11-04）**：对比 npm rc.4 产物与本机 rc.5 runtime，`dsh-llm`、`dsh-attachment`、`dsh-typert-protocol`、`dsh-typert-registry`、`dsh-api-gateway`、`dsh-client-ui-renderer`、`dsh-client-ui-settings` 的全部 `.d.ts` 和 `.js` 相同且无新增类型文件；`dsh-client-ui-slots` 不在全局 CLI 的该顶层依赖位置，另取 npm rc.5 产物比对，其 `lib/` 与 rc.4 完全相同。因此本轮仅更新精确版本基线，不修改桥接运行时逻辑。增加已安装版本及 lockfile 一致性回归，避免用遗留本地依赖验证新基线。首次测试三项均失败（清单/文档 rc.4、本地依赖 rc.2）；常规原地安装触发旧 rc.4 peer 图的 ERESOLVE，保留无关依赖锁定，仅重新解析 dsh 包后用 `npm ci` 干净安装成功，未使用 `--force` 或 `--legacy-peer-deps`。
+- **rc.5 初始精确锁定验证（2026-11-04，历史记录）**：Node v24.14.0 / pi-ai 1.4.0 下，`npm run typecheck`、175 项测试（15 个文件）和 `npm run build` 全部通过，`npm ls --depth=0` 无 invalid。当时单版本清单在 rc.5 `dsh-app-boot.evaluatePluginCompatibility` 中接受 rc.5、拒绝 rc.4 / 0.2.2；当前 peer 已按上文改为 rc.4 / rc.5 范围。构建产物通过真实 rc.5 Cordis / LlmRuntime 和真实 pi-ai、内存模拟的 OpenAI SSE 上游验证：模型发现与元数据、prepareCall 分派、认证与归因头、文本 Pong、usage 先于 finish、释放路由均通过。此验证不是完整 CLI/profile 启动或桌面验收，不覆盖真实云端、图片附件端到端或浏览器点击；未访问真实 pi 凭据，未写用户 pi/dsh 配置，未触发 OAuth 续期。`src/` 运行时和导出接口不变。
 - **2026-11-03 基线升级依据（已核实，不重复调研）**：用户桌面版 DSH 为 `0.2.1-rc.4`，Info.plist、`Resources/app/package.json` 与 `app/dsh/desktop-runtime.json` 三处一致；桌面 App 内置 runtime 的 `dsh-llm`、`dsh-attachment`、`dsh-typert-protocol`、`dsh-typert-registry`、`dsh-api-gateway` 均为 `0.2.1-rc.4`，`cordis` 为 4.0.5，`pi-ai` 为 1.3.0。全局 CLI `dsh@0.2.1-rc.3` 不是本次验证宿主；npm `latest` 的 `@deepseek-ai/dsh@0.2.1-rc.5` 也未采用。以 rc.4 的 `dsh-app-boot` 实测，旧 peer 锁定在 rc.2/rc.3/rc.4/rc.5 四档中只被 rc.2 接受；升级到 rc.4 后只有 rc.4 兼容，rc.5 与 0.2.2 会因精确锁再次拒绝。`dsh-llm`、`dsh-attachment`、`dsh-typert-protocol`、`cordis` 在 rc.2 与 rc.4 的导出集合一致（`dsh-llm` 到 rc.5 也一致），本次因此是纯版本对齐与验证，不是功能改造。
-- **rc.4 隔离宿主冒烟（2026-11-03，Node v24.21.0）**：以桌面 App 内置 rc.4 CLI 在 `/tmp/dsh-smoke-home` 新建临时 Web profile，`dsh plugin ... add <repo>` 以 link 方式装入并写入 bundle 层。启动无 `skipping profile bundle` / incompatible，日志为 `pi-auth-bridge: bridged 4 route(s) from ...`。真实 Typert 端点 `piAuthBridge/status` 返回 HTTP 200，`phase=bridged`，三项启动自检全部 `ok`，面板模型清单回填 4/2/42/305；另 2 个未知 provider 按预期 warning 跳过。随后经同一 Typert 端点对 `pi/deepseek` / `deepseek-flash` 发起真实 `text` probe：HTTP 200、921 ms、`finish=stop`、`usage ✓`、回复 `Pong`，状态服务缓存与宿主日志一致且 `recentErrors` 为空。未点浏览器、未覆盖其余能力维度或云端对话。`~/.pi` 的 `auth.json` / `models.json` 测前测后 SHA-256 一致，临时宿主及 `/tmp` 数据已清理；剩余风险仅为未覆盖的 UI 交互、其余模型/能力和后续宿主版本。
+- **rc.4 隔离宿主冒烟（2026-11-03，Node v24.21.0）**：以桌面 App 内置 rc.4 CLI 在 `/tmp/dsh-smoke-home` 新建临时 Web profile，`dsh plugin ... add <repo>` 以 link 方式装入并写入 bundle 层。启动无 `skipping profile bundle` / incompatible，日志为 `dsh-pi-auth-bridge: bridged 4 route(s) from ...`。真实 Typert 端点 `piAuthBridge/status` 返回 HTTP 200，`phase=bridged`，三项启动自检全部 `ok`，面板模型清单回填 4/2/42/305；另 2 个未知 provider 按预期 warning 跳过。随后经同一 Typert 端点对 `pi/deepseek` / `deepseek-flash` 发起真实 `text` probe：HTTP 200、921 ms、`finish=stop`、`usage ✓`、回复 `Pong`，状态服务缓存与宿主日志一致且 `recentErrors` 为空。未点浏览器、未覆盖其余能力维度或云端对话。`~/.pi` 的 `auth.json` / `models.json` 测前测后 SHA-256 一致，临时宿主及 `/tmp` 数据已清理；剩余风险仅为未覆盖的 UI 交互、其余模型/能力和后续宿主版本。
 - **消息与工具更新契约（0.2.1）**：工具结果由旧的 `user` 消息内嵌 `tool-result` block 改为独立 `role: 'tool'` 消息，调用关联与 `isError` 提升到消息字段；新增 `developer` 消息承载 `tool-addition` / `tool-removal`，`ToolSchema.deferLoading` 控制延迟声明。桥必须保留这些语义并映射为 pi-ai 的 `toolResult` 与带 `toolsAdded` / `toolsRemoved` 的 system update，不得按未知块静默丢弃。开头 system 历史与 `options.system` 合并为 systemPrompt，后续 system/developer 历史按原顺序映射为 pi-ai system 消息。`resolveModel()` 必须从 pi-ai `model.compat` 声明 `systemPromptUpdate` / `toolUpdate`，否则宿主会在调用适配器前剥离 developer 消息；Anthropic 全延迟工具列表必须补官方 `DeferredToolPlaceholder` 占位声明。
 - **图片附件支持**：dsh 的 image 块只携带 durable 引用，字节在 dsh-attachment 服务里。流程：`collectImageRefs` 跳过 `offloaded: true` 的块 → `readImageRequest(ref, target, signal)` 生成请求版本，**target 必须按 ref 各自尺寸用 `requestImageDimensions(ref.width, ref.height, maxPixels)` 换算出 `{width, height, maxBytes}`**（默认预算 2048×2048 像素 / 1 MiB，与官方一致）→ 内联为 pi-ai 的 `{ type:'image', data: base64, mimeType }` 块并配 `requestImageHandleText` 句柄文本 → 以真实版本字节经 `requiredImageOffload`（20 MiB base64 请求级预算）计量，超预算抛 `LlmError(..., IMAGE_OFFLOAD_REQUIRED_CODE, { offloadImages })` 由宿主标记卸载后重试 → `projectOffloadedImages` 投影占位。0.2.1 新增 `LlmAdapter.imageRequestTarget()`，桥必须返回与序列化完全相同的 target，供宿主截图坐标等能力使用。pi-ai 只能回放 user/tool 角色图片，其他角色带图抛 `UNSUPPORTED_CONTENT`；模型不支持图片或附件服务缺失时同样显式抛错。**桥直接依赖 `@deepseek-ai/dsh-attachment` 的真实契约类型**。
 - **事故记录 2026-09-19**（宿主 dsh@0.1.6-alpha.2，会话导出 `dsh-session-session-3bcab0a6`）：宿主升级到 0.1.6 线后，桥仍按旧契约向 `readImageRequest` 传 `{maxPixels, maxBytes}`，`validateTarget` 抛 `Image request width must be a positive integer.`，凡带截图（CUA 工具）的请求全部失败。教训：与宿主服务的跨边界调用必须复用契约包的真实类型，禁止自造结构子集。
@@ -66,10 +71,10 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 
 - 独立 npm 包 `@xnightsky/dsh-pi-auth-bridge`，ESM，TypeScript；**双面（dual-face）插件**：host 半区（cordis 插件）+ client 半区（Settings 面板区块，见 §5）。
 - dependencies: `@earendil-works/pi-ai`, `@deepseek-ai/schemastery`, `undici`（§2.5 代理 fetch；对齐 pi CLI 同款）, `@deepseek-ai/dsh-typert-protocol`（§5 状态服务基类与 `@Remote` 装饰器）, `zod`（§5 生成的 remote-client 产物 import `zod`）
-- peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm`@0.2.1-rc.4, `@deepseek-ai/dsh-attachment`@0.2.1-rc.4, `@deepseek-ai/dsh-typert-protocol`@0.2.1-rc.4, `react`（client 半区组件，宿主 web 提供）
+- peerDependencies: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-llm` / `@deepseek-ai/dsh-attachment` / `@deepseek-ai/dsh-typert-protocol`（均为 `0.2.1-rc.4 || 0.2.1-rc.5`）, `react`（client 半区组件，宿主 web 提供）
 - devDependencies: `typescript`, `vitest`, `@types/node`, `tsdown`（§5 client 打包）, `react`/`react-dom`/`@types/react`/`@types/react-dom` + `@testing-library/react` + `jsdom`（client 测试）, `@deepseek-ai/dsh-typert-registry`（产物回归测试）, `@deepseek-ai/dsh-api-gateway` / `@deepseek-ai/dsh-client-ui-renderer` / `@deepseek-ai/dsh-client-ui-settings`（client 半区类型合并来源）
 - 构建：`tsc` → `dist/`（ESM + .d.ts，含手写 Typert 产物）；`tsdown` → `dist/client.js`（CJS 懒加载模块表，zod 内联）。同时支持 dsh 直接按绝对路径加载 `src/index.ts`。
-- 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `pi-auth-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。client 半区声明 `exports["./client"]` + `dsh.client.inject = ['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-renderer']`；Typert 产物声明 `exports["./typert"]` / `exports["./remote"]`。
+- 遵循 dsh 插件（bundle）官方规范：入口导出 `name` / `inject: ['llm']` / `Config` / `apply`；`package.json` 声明 `dsh.bundle.patch` → 根目录 `cordis.patch.yml`（默认零配置 `insert`，id 为 `dsh-pi-auth-bridge`）；`cordis.patch.yml` 列入 `files` 随包发布。client 半区声明 `exports["./client"]` + `dsh.client.inject = ['@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-client-ui-renderer']`；Typert 产物声明 `exports["./typert"]` / `exports["./remote"]`。
 - 分发与版本：npm registry（`@xnightsky/dsh-pi-auth-bridge`，public，push `v*` tag 的流水线自动 `npm publish`）+ git 直装（`prepare: npm run build` 在安装时构建 `dist/`）+ GitHub Release（同一流水线生成 Release notes 并附 `npm pack` 产物）；`npm version` 手动发版，真相源 = `package.json` + `v*` tag；tag 与 package version 不一致时流水线失败。
 
 ## 2. 模块划分
@@ -148,7 +153,7 @@ README.md         # 中文为主，附 English 摘要
 
 ### 2.6 index.ts
 ```ts
-export const name = 'pi-auth-bridge'
+export const name = 'dsh-pi-auth-bridge'
 export const Config = z.object({
   piDir: z.string().optional(),        // 覆盖 pi 配置目录
   providers: z.array(z.string()).optional(), // 白名单
@@ -211,7 +216,7 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 
 ### 5.4 client 面板（client/index.tsx）
 - `apply(ctx)`（inject `['slots', 'remote']`）：`ctx.remote.$mount(TYPERT_REMOTE)`（来自本包 `./remote` 产物）。
-- **两段式启动（2026-09-20 实证修正）**：cordis 对点分服务键强制 inject 检查——访问 `ctx.remote.piAuthBridge` 会被代理解析为服务键 `remote.piAuthBridge`，未声明即抛 `cannot get property ... without inject`。但命名空间服务由 $mount 异步创建，模块级 inject 声明它会死锁（插件等服务、服务由插件创建）。官方模式（gateway 源码注释）：派生子插件 `ctx.plugin({ inject: ['slots', 'remote.piAuthBridge'], apply })` park 在命名空间服务上，服务出现后子插件启动，再 `ctx.slots.register({ name: 'settings.section', id: 'pi-auth-bridge', order: 100, label: () => 'Pi Auth Bridge' }, Panel)`。$mount 失败时子插件永远 park，必须 warn，禁止静默。
+- **两段式启动（2026-09-20 实证修正）**：cordis 对点分服务键强制 inject 检查——访问 `ctx.remote.piAuthBridge` 会被代理解析为服务键 `remote.piAuthBridge`，未声明即抛 `cannot get property ... without inject`。但命名空间服务由 $mount 异步创建，模块级 inject 声明它会死锁（插件等服务、服务由插件创建）。官方模式（gateway 源码注释）：派生子插件 `ctx.plugin({ inject: ['slots', 'remote.piAuthBridge'], apply })` park 在命名空间服务上，服务出现后子插件启动，再 `ctx.slots.register({ name: 'settings.section', id: 'dsh-pi-auth-bridge', order: 100, label: () => 'Pi Auth Bridge' }, Panel)`。$mount 失败时子插件永远 park，必须 warn，禁止静默。
 - Panel 内容（React 18，宿主提供 react；呈现层拆在 `client/panel.tsx`，入口 `client/index.tsx` 只做 $mount 与 slot 接线）：① 桥状态徽标（bridged/empty + reason）；② 路由列表——每条路由可展开完整模型子表（模型 id、上下文窗口、输入模态、能力徽章、行内「测试」按钮），区块级「全部测试」串行编排；③ 代理嗅探结果与生效配置回显；④ 插件自健康（版本表 / 启动自检 / 近期请求错误，§5.8）；⑤ 警告列表；⑥ 静态能力说明（桥接哪些协议、配置项、安全边界摘要）。
 - 面板只读，不提供任何写操作（本插件无可写面）。
 

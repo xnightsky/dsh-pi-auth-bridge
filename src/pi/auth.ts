@@ -51,7 +51,7 @@ export interface PiModelsFile {
 export class PiAuthBridgeError extends Error {
   readonly path: string
   constructor(path: string, message: string, options?: ErrorOptions) {
-    super(`pi-auth-bridge: ${path}: ${message}`, options)
+    super(`dsh-pi-auth-bridge: ${path}: ${message}`, options)
     this.name = 'PiAuthBridgeError'
     this.path = path
   }
@@ -206,7 +206,7 @@ export function readPiAuth(dir: string, options: ReadPiOptions = {}): Record<str
   for (const [provider, value] of Object.entries(raw)) {
     const entry = parseAuthEntry(value)
     if (entry === undefined) {
-      warn(`pi-auth-bridge: auth.json: skipping provider "${provider}": not a valid api_key/oauth entry`)
+      warn(`dsh-pi-auth-bridge: auth.json: skipping provider "${provider}": not a valid api_key/oauth entry`)
       continue
     }
     auth[provider] = entry
@@ -229,7 +229,7 @@ export function readPiModels(dir: string, options: ReadPiOptions = {}): PiModels
   for (const [provider, value] of Object.entries(rawProviders ?? {})) {
     const parsed = parseProviderDef(value)
     if (parsed === undefined) {
-      warn(`pi-auth-bridge: models.json: skipping provider "${provider}": not a valid provider entry`)
+      warn(`dsh-pi-auth-bridge: models.json: skipping provider "${provider}": not a valid provider entry`)
       continue
     }
     providers[provider] = parsed
@@ -282,12 +282,12 @@ export function resolvePiValue(raw: string, options: ResolvePiValueOptions = {})
   if (raw.startsWith('$')) {
     const name = raw.slice(1)
     if (name.length === 0) {
-      warn('pi-auth-bridge: empty "$" value reference cannot be resolved')
+      warn('dsh-pi-auth-bridge: empty "$" value reference cannot be resolved')
       return undefined
     }
     const value = env[name]
     if (value === undefined || value.length === 0) {
-      warn(`pi-auth-bridge: environment variable "${name}" is not set; the referencing provider is skipped`)
+      warn(`dsh-pi-auth-bridge: environment variable "${name}" is not set; the referencing provider is skipped`)
       return undefined
     }
     return value
@@ -295,7 +295,7 @@ export function resolvePiValue(raw: string, options: ResolvePiValueOptions = {})
   if (raw.startsWith('!')) {
     const command = raw.slice(1).trim()
     if (command.length === 0) {
-      warn('pi-auth-bridge: empty "!" command value cannot be resolved')
+      warn('dsh-pi-auth-bridge: empty "!" command value cannot be resolved')
       return undefined
     }
     const cache = options.cache
@@ -304,11 +304,11 @@ export function resolvePiValue(raw: string, options: ResolvePiValueOptions = {})
     try {
       value = execCmd(command, timeoutMs).trim()
       if (value.length === 0) {
-        warn(`pi-auth-bridge: command for a credential value produced empty output: ${command}`)
+        warn(`dsh-pi-auth-bridge: command for a credential value produced empty output: ${command}`)
         value = undefined
       }
     } catch (error) {
-      warn(`pi-auth-bridge: command for a credential value failed: ${command}: ${(error as Error).message}`)
+      warn(`dsh-pi-auth-bridge: command for a credential value failed: ${command}: ${(error as Error).message}`)
       value = undefined
     }
     cache?.set(command, value)

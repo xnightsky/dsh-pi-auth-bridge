@@ -120,7 +120,7 @@ function flattenText(message: DshMessage): string {
 function toPiImage(block: Extract<ContentBlock, { type: 'image' }>, images: ImageVersions | undefined): [PiTextContent, PiImageContent] {
   const version = images?.get(block.attachment.attachmentId)
   if (version === undefined) {
-    throw new LlmError('pi-auth-bridge image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+    throw new LlmError('dsh-pi-auth-bridge image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
   }
   return [
     { type: 'text', text: requestImageHandleText(block.attachment, version) },
@@ -209,7 +209,7 @@ function appendDeveloper(message: Extract<DshMessage, { role: 'developer' }>, op
         break
       case 'tool-addition': {
         const tool = options.tools?.find((candidate) => candidate.name === block.toolName)
-        if (tool === undefined) throw new LlmError(`pi-auth-bridge tool update references undeclared tool "${block.toolName}"`, 'INVALID_REQUEST')
+        if (tool === undefined) throw new LlmError(`dsh-pi-auth-bridge tool update references undeclared tool "${block.toolName}"`, 'INVALID_REQUEST')
         toolsAdded.push(piTool(tool))
         break
       }
@@ -217,7 +217,7 @@ function appendDeveloper(message: Extract<DshMessage, { role: 'developer' }>, op
         toolsRemoved.push({ name: block.toolName })
         break
       default:
-        throw new LlmError(`pi-auth-bridge cannot represent developer content ${block.type}`, 'UNSUPPORTED_CONTENT')
+        throw new LlmError(`dsh-pi-auth-bridge cannot represent developer content ${block.type}`, 'UNSUPPORTED_CONTENT')
     }
   }
   if (content.length === 0 && toolsAdded.length === 0 && toolsRemoved.length === 0) return
@@ -288,10 +288,10 @@ function assertSupportedHistory(messages: readonly DshMessage[]): void {
       throw new LlmError('Tool-change blocks require developer role', 'UNSUPPORTED_CONTENT')
     }
     if (message.role !== 'user' && message.role !== 'tool' && contentHasImage(message.content)) {
-      throw new LlmError(`pi-auth-bridge cannot represent an image in an in-history ${message.role} message`, 'UNSUPPORTED_CONTENT')
+      throw new LlmError(`dsh-pi-auth-bridge cannot represent an image in an in-history ${message.role} message`, 'UNSUPPORTED_CONTENT')
     }
     if (message.role === 'system' && message.content.some((block) => block.type !== 'text')) {
-      throw new LlmError('pi-auth-bridge cannot represent non-text system messages', 'UNSUPPORTED_CONTENT')
+      throw new LlmError('dsh-pi-auth-bridge cannot represent non-text system messages', 'UNSUPPORTED_CONTENT')
     }
   }
 }
@@ -330,7 +330,7 @@ export function toPiContext(options: GenerateOptions): PiContext {
   assertSupportedHistory(options.messages)
   for (const message of options.messages) {
     if (contentHasImage(message.content)) {
-      throw new LlmError('pi-auth-bridge image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+      throw new LlmError('dsh-pi-auth-bridge image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
   }
   const split = splitLeadingSystem(options)
@@ -357,7 +357,7 @@ export async function toPiContextWithImages(options: GenerateOptions, images: Pi
   )
   if (offloadCount > 0) {
     throw new LlmError(
-      `pi-auth-bridge request images exceed the ${maxBytes}-byte base64 bound; ${offloadCount} more oldest occurrence(s) must be offloaded.`,
+      `dsh-pi-auth-bridge request images exceed the ${maxBytes}-byte base64 bound; ${offloadCount} more oldest occurrence(s) must be offloaded.`,
       IMAGE_OFFLOAD_REQUIRED_CODE,
       { offloadImages: offloadCount },
     )

@@ -98,11 +98,11 @@ export function buildRoutes(
     if (entry?.type === 'api_key') {
       apiKey = resolved(resolve, entry.key)
       if (apiKey === undefined) {
-        warn(`pi-auth-bridge: provider "${providerId}": auth.json api key could not be resolved; trying models.json apiKey`)
+        warn(`dsh-pi-auth-bridge: provider "${providerId}": auth.json api key could not be resolved; trying models.json apiKey`)
       }
     } else if (entry?.type === 'oauth') {
       if (!includeOAuth) {
-        warn(`pi-auth-bridge: provider "${providerId}": OAuth entry ignored because includeOAuth is false`)
+        warn(`dsh-pi-auth-bridge: provider "${providerId}": OAuth entry ignored because includeOAuth is false`)
       } else {
         const expired = entry.expires !== undefined && entry.expires <= now
         if (entry.refresh !== undefined && entry.refresh.length > 0) {
@@ -111,7 +111,7 @@ export function buildRoutes(
         } else if (!expired) {
           apiKey = entry.access
         } else {
-          warn(`pi-auth-bridge: provider "${providerId}": OAuth token expired and has no refresh token; provider skipped`)
+          warn(`dsh-pi-auth-bridge: provider "${providerId}": OAuth token expired and has no refresh token; provider skipped`)
           continue
         }
       }
@@ -120,14 +120,14 @@ export function buildRoutes(
     if (apiKey === undefined && oauth === undefined && custom?.apiKey !== undefined) {
       apiKey = resolved(resolve, custom.apiKey)
       if (apiKey === undefined) {
-        warn(`pi-auth-bridge: provider "${providerId}": models.json apiKey could not be resolved`)
+        warn(`dsh-pi-auth-bridge: provider "${providerId}": models.json apiKey could not be resolved`)
       }
     }
 
     if (apiKey === undefined && oauth === undefined) {
       if (custom === undefined) {
         // 仅在 auth.json 中出现且凭据无法解析的 provider 无法提供服务。
-        warn(`pi-auth-bridge: provider "${providerId}": no usable credential; provider skipped`)
+        warn(`dsh-pi-auth-bridge: provider "${providerId}": no usable credential; provider skipped`)
         continue
       }
       // 没有任何 key 的 models.json provider 仍可能是无需密钥的本地端点；
@@ -140,7 +140,7 @@ export function buildRoutes(
       for (const [name, raw] of Object.entries(custom.headers)) {
         const value = resolve(raw)
         if (value === undefined) {
-          warn(`pi-auth-bridge: provider "${providerId}": header "${name}" could not be resolved; header dropped`)
+          warn(`dsh-pi-auth-bridge: provider "${providerId}": header "${name}" could not be resolved; header dropped`)
           continue
         }
         headers[name] = value
