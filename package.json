@@ -1,6 +1,6 @@
 {
   "name": "@xnightsky/dsh-pi-auth-bridge",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "description": "dsh plugin: bridge local pi (Pi coding agent) auth into dsh LLM routes, in-memory only",
   "license": "MIT",
   "publishConfig": {
