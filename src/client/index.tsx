@@ -2,7 +2,8 @@
  * dsh-pi-auth-bridge 浏览器半区入口：Settings 面板的「Pi Auth Bridge」区块。
  * 挂载本包的 Typert Remote 贡献（`../typert.remote-client.js`），经
  * `piAuthBridge/status` 拉取桥状态快照、`piAuthBridge/probe` 触发能力探测；
- * 呈现层在 ./panel.js。面板只读，探测是用户点击触发的真实 API 调用。
+ * 呈现层在 ./panel.js。凭据只读；显式保存授权通过宿主 configForms 完成，
+ * 探测是用户点击触发的真实 API 调用。
  *
  * @module @xnightsky/dsh-pi-auth-bridge/client
  */
@@ -11,9 +12,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-gateway/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { TYPERT_REMOTE } from '../typert/remote-client.js'
 import type { BridgeStatus, ProbeRequest, ProbeResult } from '../panel/status.js'
 import { PiAuthBridgeSection, type PiAuthBridgePanelFace } from './panel.js'
+import { SUBAGENT_NAMESPACE, type SubagentSettings } from './subagent-models.js'
 
 /** Client 半区所需服务：slot 注册表与 Remote 装配面。 */
 export const inject = ['slots', 'remote']
@@ -51,13 +54,21 @@ export function apply(ctx: Context): void {
         if (!result.ok) throw new Error(`remote probe failed: ${JSON.stringify(result.error)}`)
         return result.value
       }
+      const openPlugins = (): void => {
+        const navigation = panelCtx.get('pluginNavigation')
+        if (typeof navigation?.openList !== 'function') {
+          throw new Error('当前宿主未提供插件导航，请从侧边栏打开「插件」。')
+        }
+        navigation.openList()
+      }
+      const getSubagentForm = () => panelCtx.get('configForms')?.get<SubagentSettings>(SUBAGENT_NAMESPACE)
       panelCtx.slots.inject('settings.section', () =>
         panelCtx.slots.register({
           name: 'settings.section',
           id: 'dsh-pi-auth-bridge',
           order: 100,
           label: () => 'Pi Auth Bridge',
-          inject: (): PiAuthBridgePanelFace => ({ loadStatus, probe }),
+          inject: (): PiAuthBridgePanelFace => ({ loadStatus, probe, openPlugins, getSubagentForm }),
         }, PiAuthBridgeSection),
       )
     },

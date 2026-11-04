@@ -143,9 +143,22 @@ This is a dual-face plugin: besides the host-side LLM bridge, it ships a browser
 - **Capability probe matrix**: a per-model **Test** button (runs every applicable dimension) plus clickable capability badges for single-dimension probes, covering text, image, reasoning and tool calling (✓ ok / ✗ failed / — not applicable / ? inconclusive). Probes are real API calls triggered on click and run through the bridge's full pipeline (request conversion + stream translation); applicability follows the model's declared capabilities (models without image/reasoning support show —). Every outcome carries a diagnostic detail line (finish kind, usage, reply preview, exception type, etc.) rendered in the panel and mirrored to the host log, so failures can be investigated without re-running. The latest reports are merged per dimension into the status snapshot and survive panel reopening;
 - **Plugin self-health**: a version table (plugin / dsh-llm / dsh-attachment / pi-ai), startup self-checks (dsh-llm attribution-header contract, dsh-attachment image target conversion contract, attachment service presence) and recent request errors (newest first, capped at 20) — whether an upgrade broke the bridge is visible at a glance;
 - **Effective config echo** (whitelist / OAuth toggle / command timeout), **proxy detection** result and every **warning** collected during bridging;
+- **Per-model subagent authorization**: toggle **允许子智能体使用** in each model row and explicitly save to dsh's native allowlist, preserving other grants and checking revision conflicts without duplicating connection or credential configuration;
 - A static capability summary (bridge scope, security boundary).
 
-Mechanism: the host half mounts a Typert Remote service (`piAuthBridge/status` for the read-only snapshot, `piAuthBridge/probe` for capability probing); the browser half calls them via `ctx.remote.$mount` and renders into the `settings.section` slot. The panel is only active in the dsh web composition; headless compositions are unaffected.
+Mechanism: the host half mounts a Typert Remote service (`piAuthBridge/status` for the read-only snapshot, `piAuthBridge/probe` for capability probing); the browser half calls them via `ctx.remote.$mount` and renders into `settings.section`. Subagent authorization reuses the host's official `configForms` service and writes only `enabled` / `allowedModels` on explicit Save, with no new host RPC or direct file writes. Headless compositions are unaffected.
+
+### Using PI models with subagents
+
+1. In the Bridge panel's **子智能体模型选择** section, explicitly enable **允许 Agent 为子智能体选择模型** (allow autonomous subagent model selection).
+2. Expand a provider route, toggle **允许子智能体使用** (allow subagents to use this model) next to each model, then click **保存子智能体授权** (save subagent authorization). Toggles edit an in-memory draft; Cancel or leaving the panel discards unsaved changes.
+3. **Start a new Session** so `list_subagent_models` uses its newly sampled policy. Saved changes do not alter existing Sessions; disabling selection does not prohibit parent-model inheritance.
+
+Suggested prompt: **“Call `list_subagent_models`: first list providers, then query models for each provider and summarize the subagent candidates authorized for this Session.”** This is a tool name, not a magic keyword or command that executes on entry. No arguments list providers; a provider argument lists models. The tool must be exposed to the current Session; discovery follows its policy and catalog and does not prove successful execution. Start a new Session after changing authorization.
+
+This panel and official **Plugins → Subagent → Model selection** share the same `allowedModels`. Other grants are preserved, and newly discovered models are never authorized automatically. Disabling the global switch retains grants; an enabled policy must contain at least one model. Missing/read-only settings, save failures, and concurrent edits are reported explicitly; discard a conflicting draft before retrying.
+
+**打开插件 (Open Plugins)** remains an optional official-page shortcut: it opens the plugin list and closes the Settings overlay, not the nested Subagent page. Scroll **inside the official model list** to see all candidates. Missing navigation or authorization services do not disable bridge diagnostics or probing. Catalog presence proves registration, not authorization or a successful real model/subagent call.
 
 ## OAuth credential handling and limits
 
@@ -165,7 +178,7 @@ Live verification (2026-10-28, Node 24.14.0 / pi-ai 1.4.0 / undici 7.30.1): real
 |---|---|---|
 | Credential source | harness-owned credential store / login flows (`ctx.credentials`, OAuth login) | reuses the local pi `auth.json` login state |
 | Configuration | settings seam, per-field profile overrides of the catalog | zero config (only 6 optional knobs) |
-| Credential persistence | writes to the harness credential store | never writes any file, pure memory |
+| Credential persistence | writes to the harness credential store | credentials remain in memory, never persisted |
 | Retries | works with dsh-llm-retry / retry policy | none (`maxRetries: 0`) |
 | Images | supported (via dsh-attachment) | supported (also via dsh-attachment, same policy as official) |
 | Custom providers | declared in settings.yaml | reuses pi's `models.json` directly |
@@ -176,6 +189,7 @@ In one sentence: the official adapter targets the harness-owned credential/login
 
 - **Read-only** on pi config files: nothing under `~/.pi` (or `$PI_CODING_AGENT_DIR`) is created, modified, or deleted;
 - credentials stay in process memory throughout: no `ctx.credentials.set` calls, nothing in the dsh credential store, no temp files, and OAuth refresh results are never written back;
+- **Authorization write exception**: an explicit Save in this panel lets the official dsh settings service persist subagent `enabled` / `allowedModels` only, with no credentials, second allowlist, or unrelated host settings changes;
 - `"!cmd"` value commands come from pi's own config files (the same commands pi itself would run), with a 10s default timeout and in-memory-only result caching;
 - warnings/logs never contain credential material.
 

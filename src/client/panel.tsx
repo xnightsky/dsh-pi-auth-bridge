@@ -1,12 +1,15 @@
 /**
  * dsh-pi-auth-bridge Settings 区块的呈现层：桥状态、配置回显、模型 × 能力
  * 交叉探测矩阵（每模型行内测试 / 全部测试）、插件自健康（版本表、启动
- * 自检、近期请求错误）。面板只读，探测是用户点击触发的真实 API 调用。
+ * 自检、近期请求错误）。凭据只读；授权仅在显式保存时经原生设置接口写入，
+ * 探测仍是用户点击触发的真实 API 调用。
  *
  * @module @xnightsky/dsh-pi-auth-bridge/client-panel
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { mergeProbeReport, probeKey, type BridgeModelStatus, type BridgeRouteStatus, type BridgeStatus, type ModelProbeReport, type ProbeCapability, type ProbeRequest, type ProbeResult, type ProbeVerdict } from '../panel/status.js'
+import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { SubagentSettingsPanel, SubagentModelToggle, useSubagentModels, type GetSubagentForm, type SubagentControl } from './subagent-controls.js'
 
 /** 面板的数据拉取面（由入口经 slot inject 注入）。 */
 export interface PiAuthBridgePanelFace {
@@ -14,6 +17,10 @@ export interface PiAuthBridgePanelFace {
   loadStatus: () => Promise<BridgeStatus>
   /** 对指定路由的指定模型跑能力探测（真实 API 调用，耗时数秒）。 */
   probe: (request: ProbeRequest) => Promise<ProbeResult>
+  /** 只打开官方插件首页，不修改模型授权或当前会话。 */
+  openPlugins?: () => void
+  /** 获取原生子智能体授权配置面；仅显式保存时写入此命名空间。 */
+  getSubagentForm?: GetSubagentForm
 }
 
 type LoadState =
@@ -126,7 +133,7 @@ export interface ProbeActions {
 }
 
 /** 一条路由的模型子表。 */
-function ModelTable({ route, actions }: { route: BridgeRouteStatus; actions: ProbeActions }): ReactNode {
+function ModelTable({ route, actions, subagents }: { route: BridgeRouteStatus; actions: ProbeActions; subagents: SubagentControl }): ReactNode {
   const models = route.modelList ?? []
   if (models.length === 0) {
     return <p style={styles.muted}>模型清单尚未就绪（注册后异步填充），请稍后刷新面板。</p>
@@ -140,18 +147,19 @@ function ModelTable({ route, actions }: { route: BridgeRouteStatus; actions: Pro
           <th style={styles.cell}>输入</th>
           <th style={styles.cell}>能力探测</th>
           <th style={styles.cell}></th>
+          <th style={styles.cell}>子智能体授权</th>
         </tr>
       </thead>
       <tbody>
         {models.map((model) => (
-          <ModelRow key={model.id} route={route.id} model={model} actions={actions} />
+          <ModelRow key={model.id} route={route.id} model={model} actions={actions} subagents={subagents} />
         ))}
       </tbody>
     </table>
   )
 }
 
-function ModelRow({ route, model, actions }: { route: string; model: BridgeModelStatus; actions: ProbeActions }): ReactNode {
+function ModelRow({ route, model, actions, subagents }: { route: string; model: BridgeModelStatus; actions: ProbeActions; subagents: SubagentControl }): ReactNode {
   const key = probeKey(route, model.id)
   const busy = actions.probing[key] === true
   const error = actions.probeErrors[key]
@@ -173,12 +181,13 @@ function ModelRow({ route, model, actions }: { route: string; model: BridgeModel
           {busy ? '测试中…' : '测试'}
         </button>
       </td>
+      <td style={styles.cell}><SubagentModelToggle control={subagents} provider={route} model={model.id} /></td>
     </tr>
   )
 }
 
 /** 路由列表：每条路由一个可展开的模型子表。 */
-function RouteList({ routes, actions }: { routes: BridgeRouteStatus[]; actions: ProbeActions }): ReactNode {
+function RouteList({ routes, actions, subagents }: { routes: BridgeRouteStatus[]; actions: ProbeActions; subagents: SubagentControl }): ReactNode {
   return (
     <div>
       {routes.map((route) => (
@@ -191,7 +200,7 @@ function RouteList({ routes, actions }: { routes: BridgeRouteStatus[]; actions: 
               {CREDENTIAL_LABEL[route.credential]} · {route.modelList !== undefined ? `${route.modelList.length} 个模型` : route.models === 0 ? '目录' : `${route.models} 个模型`}
             </span>
           </summary>
-          <ModelTable route={route} actions={actions} />
+          <ModelTable route={route} actions={actions} subagents={subagents} />
         </details>
       ))}
     </div>
@@ -274,8 +283,34 @@ function CapabilityNotes(): ReactNode {
   )
 }
 
+/** 引导用户使用官方子智能体授权；导航不可用时保留手动操作路径。 */
+function SubagentModelGuide({ openPlugins, close }: { openPlugins: PiAuthBridgePanelFace['openPlugins']; close: SettingsSectionOwnerProps['close'] | undefined }): ReactNode {
+  const [error, setError] = useState<string>()
+  const navigate = (): void => {
+    try {
+      openPlugins?.()
+      close?.()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+  return (
+    <div>
+      <h4>子智能体模型选择</h4>
+      <p style={styles.muted}>本桥的 PI 模型会进入 dsh 官方模型目录；子智能体自主选模仍需单独授权。</p>
+      <p style={styles.muted}>可直接在本面板逐模型授权并保存；也可使用官方「插件 → 子智能体 → 模型选择」管理同一份设置。</p>
+      <p style={styles.muted}>官方模型列表可在框内滚动查看完整候选清单。</p>
+      <button type="button" style={styles.button} disabled={openPlugins === undefined} onClick={navigate}>打开插件</button>
+      <p style={styles.muted}>此入口只打开插件首页，请再进入「子智能体」；不会自动勾选、保存或发起模型调用。</p>
+      {openPlugins === undefined && <p style={styles.warning}>当前宿主未提供导航入口，请从侧边栏打开「插件」。</p>}
+      {error !== undefined && <p role="alert" style={styles.warning}>无法打开插件：{error}</p>}
+    </div>
+  )
+}
+
 /** Settings 区块组件：挂载时拉取一次快照，探测结果缓存在组件内。 */
-export function PiAuthBridgeSection({ loadStatus, probe }: PiAuthBridgePanelFace): ReactNode {
+export function PiAuthBridgeSection({ loadStatus, probe, openPlugins, getSubagentForm, close }: PiAuthBridgePanelFace & Partial<SettingsSectionOwnerProps>): ReactNode {
+  const subagents = useSubagentModels(getSubagentForm)
   const [state, setState] = useState<LoadState>({ phase: 'loading' })
   const [reports, setReports] = useState<Record<string, ModelProbeReport>>({})
   const [probing, setProbing] = useState<Record<string, boolean>>({})
@@ -346,10 +381,12 @@ export function PiAuthBridgeSection({ loadStatus, probe }: PiAuthBridgePanelFace
         代理嗅探：{status.proxy.enabled ? (status.proxy.detected ? '已检测到代理变量，桥接请求走代理' : '未检测到代理变量') : '已关闭（proxy: false）'}
       </p>
       <ConfigEcho status={status} />
+      <SubagentModelGuide openPlugins={openPlugins} close={close} />
+      <SubagentSettingsPanel control={subagents} />
       {status.routes.length > 0 && (
         <div>
           <h4>路由与模型</h4>
-          <RouteList routes={status.routes} actions={actions} />
+          <RouteList routes={status.routes} actions={actions} subagents={subagents} />
         </div>
       )}
       <SelfHealth status={status} />

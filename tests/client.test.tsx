@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 /// <reference lib="dom" />
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { apply, inject, PiAuthBridgeSection } from '../src/client/index.js'
+import type { PiAuthBridgePanelFace } from '../src/client/index.js'
 import { bridgedStatus, emptyStatus, probeKey } from '../src/panel/status.js'
 import type { BridgeStatus, ModelProbeReport, ProbeRequest, ProbeResult } from '../src/panel/status.js'
 import type { RouteDef } from '../src/bridge/convert.js'
+import { subagentForm } from './subagent-form-fixture.js'
 
 afterEach(cleanup)
 
@@ -32,6 +34,133 @@ function bridged(): BridgeStatus {
 const noProbe = () => Promise.reject<ProbeResult>(new Error('probe not expected'))
 
 describe('PiAuthBridgeSection', () => {
+  it('edits model authorization through the shared Host form without probing', async () => {
+    const other = { provider: 'native', model: 'keep-me' }
+    const fixture = subagentForm({ enabled: true, allowedModels: [other] })
+    const status = bridged()
+    status.routes[0]!.modelList = [{ id: 'acme-large', input: ['text'] }]
+    const probe = vi.fn(noProbe)
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(status)} probe={probe} getSubagentForm={() => fixture.form} />)
+    const toggle = await screen.findByLabelText('允许子智能体使用 pi/acme/acme-large') as HTMLInputElement
+    await waitFor(() => expect(toggle.disabled).toBe(false))
+    fireEvent.click(toggle)
+    expect(toggle.checked).toBe(true)
+    expect(fixture.mutate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '保存子智能体授权' }))
+    await waitFor(() => expect(fixture.form.getSnapshot().value?.allowedModels).toEqual([other, { provider: 'pi/acme', model: 'acme-large' }]))
+    expect(probe).not.toHaveBeenCalled()
+    expect((screen.getByRole('button', { name: '保存子智能体授权' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('disables authorization editing on a read-only Host but retains bridge diagnostics', async () => {
+    const fixture = subagentForm({ enabled: false, allowedModels: [] })
+    fixture.update({ writable: false })
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(bridged())} probe={noProbe} getSubagentForm={() => fixture.form} />)
+    await screen.findByText(/授权设置只读/)
+    expect((screen.getByRole('switch', { name: '允许 Agent 为子智能体选择模型' }) as HTMLInputElement).disabled).toBe(true)
+    expect(screen.getByText('已桥接')).toBeTruthy()
+    expect(fixture.mutate).not.toHaveBeenCalled()
+  })
+
+  it('shows settings-service failures without losing bridge status', async () => {
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(bridged())} probe={noProbe} getSubagentForm={() => { throw new Error('settings offline') }} />)
+    await screen.findByText(/无法读取子智能体授权：settings offline/)
+    expect(screen.getByText('已桥接')).toBeTruthy()
+  })
+
+  it('surfaces concurrent official-page edits and discards stale grants', async () => {
+    const fixture = subagentForm({ enabled: true, allowedModels: [{ provider: 'native', model: 'existing' }] })
+    const status = bridged()
+    status.routes[0]!.modelList = [{ id: 'acme-large', input: ['text'] }]
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(status)} probe={noProbe} getSubagentForm={() => fixture.form} />)
+    const toggle = await screen.findByLabelText('允许子智能体使用 pi/acme/acme-large') as HTMLInputElement
+    fireEvent.click(toggle)
+    act(() => { fixture.update({ revision: 8, value: { enabled: true, allowedModels: [{ provider: 'native', model: 'updated' }] } }) })
+    expect(screen.getByRole('alert').textContent).toContain('授权已在其他页面更新')
+    expect((screen.getByRole('button', { name: '保存子智能体授权' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '取消授权修改' }))
+    expect(toggle.checked).toBe(false)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(fixture.mutate).not.toHaveBeenCalled()
+  })
+
+  it('does not save an enabled policy with an empty allowlist', async () => {
+    const fixture = subagentForm({ enabled: false, allowedModels: [] })
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(bridged())} probe={noProbe} getSubagentForm={() => fixture.form} />)
+    await screen.findByText('当前显示宿主已保存的授权。')
+    fireEvent.click(screen.getByRole('switch', { name: '允许 Agent 为子智能体选择模型' }))
+    expect((screen.getByRole('button', { name: '保存子智能体授权' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('switch', { name: '允许 Agent 为子智能体选择模型' }))
+    expect(fixture.mutate).not.toHaveBeenCalled()
+    expect(screen.getByText('当前显示宿主已保存的授权。')).toBeTruthy()
+  })
+
+  it('shows a failed native save without losing the draft', async () => {
+    const fixture = subagentForm({ enabled: true, allowedModels: [{ provider: 'native', model: 'existing' }] })
+    fixture.mutate.mockRejectedValueOnce(new Error('save offline'))
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(bridged())} probe={noProbe} getSubagentForm={() => fixture.form} />)
+    await screen.findByText('当前显示宿主已保存的授权。')
+    fireEvent.click(screen.getByRole('switch', { name: '允许 Agent 为子智能体选择模型' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存子智能体授权' }))
+    await screen.findByText('授权保存失败：save offline')
+    expect(fixture.form.getSnapshot().value?.enabled).toBe(true)
+    expect((screen.getByRole('switch', { name: '允许 Agent 为子智能体选择模型' }) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByRole('button', { name: '取消授权修改' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('explains scoped tool discovery without promising a magic keyword or auto invocation', async () => {
+    const fixture = subagentForm({ enabled: false, allowedModels: [] })
+    const probe = vi.fn(noProbe)
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(bridged())} probe={probe} getSubagentForm={() => fixture.form} />)
+    await screen.findByText('请调用 list_subagent_models，先列出 provider，再逐个查询模型，汇总本会话的子智能体候选清单。')
+    const hint = screen.getByText(/这是工具名，不是输入即执行的命令/).textContent
+    expect(hint).toContain('当前会话提供该工具')
+    expect(hint).toContain('本会话授权下可发现的候选')
+    expect(hint).toContain('不保证实际调用成功')
+    expect(hint).toContain('修改授权后请新建会话再查询')
+    expect(fixture.mutate).not.toHaveBeenCalled()
+    expect(probe).not.toHaveBeenCalled()
+  })
+
+  it('guides users to official model authorization and only navigates on click', async () => {
+    const order: string[] = []
+    const openPlugins = vi.fn(() => { order.push('navigate') })
+    const close = vi.fn(() => { order.push('close') })
+    const loadStatus = vi.fn(() => Promise.resolve(bridged()))
+    const probe = vi.fn(noProbe)
+    render(<PiAuthBridgeSection loadStatus={loadStatus} probe={probe} openPlugins={openPlugins} close={close} />)
+    await screen.findByText('子智能体模型选择')
+    expect(screen.getByText(/插件 → 子智能体 → 模型选择/)).toBeTruthy()
+    expect(screen.getByText(/框内滚动/)).toBeTruthy()
+    expect(screen.getByText(/仅对新会话生效/)).toBeTruthy()
+    expect(openPlugins).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '打开插件' }))
+    expect(openPlugins).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['navigate', 'close'])
+    expect(loadStatus).toHaveBeenCalledTimes(1)
+    expect(probe).not.toHaveBeenCalled()
+  })
+
+  it('keeps manual instructions available without navigation support', async () => {
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(emptyStatus('llm-missing', 'missing llm'))} probe={noProbe} />)
+    await screen.findByText('子智能体模型选择')
+    expect((screen.getByRole('button', { name: '打开插件' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText(/从侧边栏打开/)).toBeTruthy()
+    expect(screen.getByText('空挂载')).toBeTruthy()
+  })
+
+  it('reports navigation failures without losing the bridge panel', async () => {
+    const openPlugins = () => { throw new Error('navigation unavailable') }
+    const close = vi.fn()
+    render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(bridged())} probe={noProbe} openPlugins={openPlugins} close={close} />)
+    await screen.findByText('子智能体模型选择')
+    fireEvent.click(screen.getByRole('button', { name: '打开插件' }))
+    expect(screen.getByRole('alert').textContent).toContain('navigation unavailable')
+    expect(close).not.toHaveBeenCalled()
+    expect(screen.getByText('已桥接')).toBeTruthy()
+  })
+
   it('renders the bridged snapshot: badge, routes, proxy, and warnings', async () => {
     const { container } = render(<PiAuthBridgeSection loadStatus={() => Promise.resolve(bridged())} probe={noProbe} />)
     await waitFor(() => screen.getByText('已桥接'))
@@ -208,6 +337,11 @@ describe('client apply', () => {
   it('registers the settings section once the namespace service is available', async () => {
     const status: BridgeStatus = bridged()
     const registered: { options: Record<string, unknown>; component: unknown }[] = []
+    const openList = vi.fn()
+    let navigation: { openList: () => void } | undefined
+    const fixture = subagentForm()
+    const getForm = vi.fn(() => fixture.form)
+    let forms: { get: typeof getForm } | undefined
     let child: { apply: (ctx: Context) => void } | undefined
     const ctx = {
       logger: () => ({ warn: () => {} }),
@@ -219,6 +353,7 @@ describe('client apply', () => {
     apply(ctx)
 
     const panelCtx = {
+      get: (service: string) => service === 'pluginNavigation' ? navigation : service === 'configForms' ? forms : undefined,
       remote: {
         piAuthBridge: {
           status: () => Promise.resolve({ ok: true, value: status }),
@@ -239,8 +374,18 @@ describe('client apply', () => {
     expect(registered[0]?.options).toMatchObject({ name: 'settings.section', id: 'dsh-pi-auth-bridge' })
     expect(typeof registered[0]?.component).toBe('function')
     // loadStatus 解包 RemoteResult。
-    const face = (registered[0]?.options.inject as () => { loadStatus: () => Promise<BridgeStatus>; probe: (request: ProbeRequest) => Promise<ProbeResult> })()
+    const face = (registered[0]?.options.inject as () => PiAuthBridgePanelFace)()
     await expect(face.loadStatus()).resolves.toBe(status)
     await expect(face.probe({ route: 'pi/acme', model: 'acme-large' })).resolves.toMatchObject({ ok: false, code: 'x' })
+    expect(face.getSubagentForm?.()).toBeUndefined()
+    forms = { get: getForm }
+    expect(face.getSubagentForm?.()).toBe(fixture.form)
+    expect(getForm).toHaveBeenCalledWith('subagent-model-selection-settings')
+    // 导航服务按点击时查询：晚出现可用，卸载后明确报错。
+    navigation = { openList }
+    face.openPlugins?.()
+    expect(openList).toHaveBeenCalledTimes(1)
+    navigation = undefined
+    expect(() => face.openPlugins?.()).toThrow('从侧边栏打开')
   })
 })

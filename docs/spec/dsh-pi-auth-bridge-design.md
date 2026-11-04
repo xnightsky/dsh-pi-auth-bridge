@@ -66,6 +66,9 @@ dsh 插件：把本机 pi（pi-mono / Pi coding agent）的认证（`models.json
 - **UI 挂载点 = slot 系统**：client 半区 `ctx.slots.register({ name: 'settings.section', id, order, label }, Component)` 即在 Settings 面板挂出本插件区块（实证 `dsh-client-ui-settings-general` 用 `renderSlot('settings.section', …)` 渲染、`dsh-client-ui-settings-plugins` 以此注册）。slot 注册不需改 dsh 源码。0.1.5 起另有右侧边栏 tab（`ctx.sidebarRight`），本插件不用。
 - **host→浏览器数据通道 = Typert Remote**：作者侧五步（实证官方文档 `learn/dev/typert-authoring` + 第一方参考 `dsh-message-feedback`）：① 导出服务类继承 `TypertRemoteService`（`@deepseek-ai/dsh-typert-protocol`，本地 0.1.6-alpha.2 已核实导出）并以 `@Remote('name')` 标注方法（TC39 标准装饰器签名，**不是** legacy experimentalDecorators）；② 构建期 `@deepseek-ai/dsh-typert-generator` 的 tsdown 插件 `typertPlugin({mode:'workspace',faces:['host']})` 产 `typert.host.{js,d.ts}` + `typert.remote-client.{js,d.ts}`（生成产物 import `zod`）；③ `package.json` exports 暴露 `./typert` 与 `./remote` 并列入 `files`；④ 宿主内置 `dsh-typert-loader` 自动发现 Loader 条目的 `./typert` 导出并注册进 `ctx.typert`（实证其 lib/index.js 模块头注释）；⑤ client 半区 `ctx.remote.$mount(TYPERT_REMOTE)`（`ctx.remote` 由 `@deepseek-ai/dsh-api-gateway` 的 client 半区提供，实证 `dsh-api-remotes/lib/client.js` 即以此挂载 14 个第一方 contribution）获得类型化调用代理。
 - `@Remote` 方法的参数/返回值经 zod schema 过边界：只支持可投影类型（字面量/数组/union/interface/Record 等），函数、Map/Set、泛型根会直接分析失败；public 实例方法才可暴露。
+- **rc.5 子智能体模型接入（2026-11-04）**：官方子智能体页从 `remote.session.modelCatalog()` 获取全部可用模型候选，不按已有授权过滤；`list_subagent_models` 才按当前 Session 保存的精确 provider/model 授权过滤。模型选择设置只影响新会话，已有会话的策略不变。本轮真实 Web 只读对比：桥面板与官方目录均为 78 个 PI 模型，逐项缺失/多余及目录失败均为 0；官方页面 DOM 为 80 行（78 PI + 2 原生），列表可视高度 300、内容高度 4546，需在框内滚动。未修改授权，未调用模型。
+- **rc.5 公开插件导航**：`pluginNavigation` 仅公开 `openList()` 与 `openBundle(packageName)`，没有直达官方 Subagent 子页的方法。本插件使用 `openList()` 打开插件首页，文案明确后续路径为「插件 → 子智能体 → 模型选择」，不伪造 URL、不访问私有导航 store；本轮不迁移现有 `settings.section` 面板。
+- **Settings 弹层退出契约**：`SettingsSectionOwnerProps.close()` 由 Settings shell 作为 `settings.section` 的 owner prop 提供；`pluginNavigation.openList()` 只切换底层主面板，不会关闭 Settings 弹层。导航成功后必须调用 `close()`，否则插件首页仍被遮挡；导航失败不关闭弹层，保留错误和手动路径。
 
 ## 1. 项目形态
 
@@ -179,7 +182,7 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 ## 4. README 要点（已落实）
 - 安装与 cordis.yml 配置示例（绝对路径 insert 两种：src/index.ts 与 dist/index.js）
 - 与官方 `@deepseek-ai/dsh-llm-pi-ai` 的区别（那个面向 harness 自有凭据/登录体系；本插件零配置复用 pi 已有登录态，不落地）
-- 安全说明：只读 pi 文件；凭据全程内存；不修改 `~/.pi` 与 `$DSH_HOME` 下任何文件
+- 安全说明：只读 pi 文件，凭据全程内存；仅用户显式保存的子智能体授权可经宿主官方设置接口持久化（§5.10），不直接写配置文件、不改其他宿主设置
 - Windows + Linux 支持说明（路径、PI_CODING_AGENT_DIR）
 - 代理说明：默认嗅探 `http_proxy`/`https_proxy`/`all_proxy`/`no_proxy` 并注入代理 fetch；`proxy: false` 关闭；google 线路需 `NODE_USE_ENV_PROXY=1` 启动 dsh 兜底（§2.5 方案 B）
 
@@ -218,7 +221,7 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - `apply(ctx)`（inject `['slots', 'remote']`）：`ctx.remote.$mount(TYPERT_REMOTE)`（来自本包 `./remote` 产物）。
 - **两段式启动（2026-09-20 实证修正）**：cordis 对点分服务键强制 inject 检查——访问 `ctx.remote.piAuthBridge` 会被代理解析为服务键 `remote.piAuthBridge`，未声明即抛 `cannot get property ... without inject`。但命名空间服务由 $mount 异步创建，模块级 inject 声明它会死锁（插件等服务、服务由插件创建）。官方模式（gateway 源码注释）：派生子插件 `ctx.plugin({ inject: ['slots', 'remote.piAuthBridge'], apply })` park 在命名空间服务上，服务出现后子插件启动，再 `ctx.slots.register({ name: 'settings.section', id: 'dsh-pi-auth-bridge', order: 100, label: () => 'Pi Auth Bridge' }, Panel)`。$mount 失败时子插件永远 park，必须 warn，禁止静默。
 - Panel 内容（React 18，宿主提供 react；呈现层拆在 `client/panel.tsx`，入口 `client/index.tsx` 只做 $mount 与 slot 接线）：① 桥状态徽标（bridged/empty + reason）；② 路由列表——每条路由可展开完整模型子表（模型 id、上下文窗口、输入模态、能力徽章、行内「测试」按钮），区块级「全部测试」串行编排；③ 代理嗅探结果与生效配置回显；④ 插件自健康（版本表 / 启动自检 / 近期请求错误，§5.8）；⑤ 警告列表；⑥ 静态能力说明（桥接哪些协议、配置项、安全边界摘要）。
-- 面板只读，不提供任何写操作（本插件无可写面）。
+- 凭据与诊断只读；唯一写入面是用户显式保存的原生子智能体授权（§5.10），不新增 host RPC。
 
 ### 5.5 测试
 - status.ts：各 phase 的快照组装（bridged 全字段 / 四种 empty reason）、凭据本体不泄漏（快照序列化后不含敏感串）。
@@ -251,3 +254,18 @@ export function apply(ctx, config) { /* locate→read→convert→registerAdapte
 - 启动自检（apply 时本地契约检查，无网络）：`dsh-llm-contract`（attributionHeaders 可用）、`dsh-attachment-contract`（requestImageDimensions(100,100,4MiB) 返回正整数宽高——09-19 事故的直接回归）、`attachments-service`（附件服务已挂载，否则带图请求必显式报错）。
 - 近期请求错误：adapter 的 `recordError` 钩子把请求期错误（上游失败、图片转换失败）写入状态盒环形缓冲（新→旧，上限 20 条）；调用方中止（ABORTED）与调用契约错误（UNSUPPORTED_OPTION 等）不记录——它们是请求方问题，不是桥的健康信号。
 - 以上三项随每次快照回填（含 empty 早退路径），空挂载时面板同样能看到自健康。
+
+### 5.9 子智能体模型选择引导
+- 在当前 Bridge 面板加入独立引导区：说明 PI 模型已进入共享目录，但子智能体自主选模仍需用户授权；提示开启「允许 Agent 为子智能体选择模型」、勾选模型、保存并新建会话，模型清单可在框内滚动。
+- 「打开插件」仅在点击时通过 `ctx.get('pluginNavigation')` 查询当前服务并调用其公开 `openList()`；不把导航服务设为面板的必需依赖，缺失或旧宿主不支持此方法时显式提示用户从侧边栏打开插件，不影响桥状态、模型清单与能力探测。类型通过官方插件管理器的 client 声明校验，仅增加精确 rc.5 开发依赖，不增加运行时加载依赖。
+- 导航自身不勾选或保存授权、不发起模型调用；内联授权操作见 §5.10。不新增 host RPC 或修改 `BridgeStatus`，不改变当前 Session。
+- 回归覆盖操作文案、按钮回调、导航缺失/抛错、延迟服务查询与既有 Remote 解包行为；类型检查、全量测试、构建及浏览器只读导航验证通过后交付。
+
+### 5.10 逐模型子智能体授权（用户确认的写入例外）
+- 用户确认在 Bridge 模型行内增加逐模型授权开关，直接编辑 dsh 原有 `subagent-model-selection-settings`；不再把跳转页面当作授权功能。只允许通过官方 `ConfigForms.get()` / `ConfigForm.mutate()` 修改此命名空间的 `enabled` 与 `allowedModels`，由宿主负责持久化；凭据桥和 pi 文件仍严格只读，不直接写文件，也不维护第二份授权存储。
+- 采用与官方页一致的草稿 + 保存语义：总开关显式控制；开启总开关后可逐模型添加/移除精确 `{ provider, model }`，所有非目标授权（含非 PI、当前不可见的路由）原样保留。关闭总开关保留授权列表；总开关开启且授权列表为空时禁止保存，提示用户明确关闭总开关或保留至少一个模型，不自动切换全局状态。
+- 客户端控制器只订阅共享配置面并持有临时草稿；以读取草稿时的 revision 原子保存两字段。外部更新导致冲突时禁止覆盖，提供取消草稿以读取最新状态；写入拒绝或网络异常必须显式显示，保存期间禁用重复操作，离开页面丢弃未保存草稿。共享配置面由宿主拥有，组件卸载只取消自己的订阅，不销毁共享服务。
+- `configForms` 或命名空间不存在、加载中、只读时授权区不可编辑，但不阻塞桥状态或原有能力探测；不新增 host RPC、不改模型路由或 `BridgeStatus`。模型行仅允许编辑当前显示的 PI 路由，新增模型不自动授权；授权只影响新会话中的自主选模，非全局模型访问防火墙。
+- 测试先覆盖草稿/保存、精确身份、保留其他授权、空列表约束、不可写和冲突、宿主拒绝/异常及卸载，再覆盖面板开关与既有功能。浏览器对用户真实配置仅做展示检查；保存链路使用合成配置面或隔离宿主验证，不擅自变更用户现有授权。
+- **查询提示语义校准**：面板提示用户在对话中请求 Agent 调用 `list_subagent_models`。原生工具无参数只列 provider，带 `provider` 才列其获授权的目录模型，带精确 `provider` / `model` 可查询模型与推理档位。因此示例要求先列 provider、再逐个查询模型；明确其是工具名而非输入即执行的命令，须当前会话提供该工具，返回候选不保证真实调用成功。保存授权后须新建会话再查询，不自动触发工具或模型调用。
+- **验证记录（2026-11-04）**：先复现缺少授权控件/关闭回调的 3 项组件失败及缺少查询提示的 1 项失败；实现后控制器 14 项、客户端 20 项回归通过，全量 202 项测试（18 文件）、类型检查、构建与 `git diff --check` 全绿，`npm pack --dry-run` 为 70 文件并含新授权模块。真实 Web 验证共享原生设置可读写标志、78 个 PI 模型开关及 2 个已选授权；仅切换内存草稿再取消，保存按钮恢复禁用、无告警，查询提示可见。可选导航成功关闭 Settings 并显示插件首页/子智能体入口，未触发探测。恢复被关闭的托管浏览器后登录态仍有效，重新验证上述展示及草稿取消。整个本轮验证窗口内 `auth.json`、`models.json`、Web profile manifest/override 四份文件哈希不变，未保存真实授权、未调用模型；保存逻辑由纯内存配置面验证，真实持久化和子智能体执行留待用户验收。此前另轮发现的 `auth.json` 并发变更来源仍独立待查。注释收口为浏览器入口、面板、授权控制器/控件及项目边界的最窄写入例外，LLM 契约和凭据管线未改。

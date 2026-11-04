@@ -30,8 +30,8 @@ describe('DSH compatibility baseline', () => {
       '@deepseek-ai/dsh-llm',
       '@deepseek-ai/dsh-typert-protocol',
     ])
-    expect(dev).toHaveLength(8)
-    expect([...peers, ...dev]).toHaveLength(11)
+    expect(dev).toHaveLength(9)
+    expect([...peers, ...dev]).toHaveLength(12)
     for (const [name, version] of peers) {
       expect(version, name).toBe(SUPPORTED_DSH_RANGE)
     }
